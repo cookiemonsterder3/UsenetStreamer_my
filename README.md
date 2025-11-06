@@ -48,6 +48,7 @@ docker run -d \
    -e NZBDAV_WEBDAV_URL=http://localhost:3000 \
    -e NZBDAV_WEBDAV_USER=webdav-username \
    -e NZBDAV_WEBDAV_PASS=webdav-password \
+   -e NZBDAV_CATEGORY=Stremio \
    -e ADDON_BASE_URL=https://myusenet.duckdns.org \
    ghcr.io/sanket9225/usenetstreamer:latest
 ```
@@ -66,6 +67,7 @@ When `ADDON_SHARED_SECRET` is set, every request must include `?token=${ADDON_SH
 - `INDEXER_MANAGER`, `INDEXER_MANAGER_URL`, `INDEXER_MANAGER_API_KEY`, `INDEXER_MANAGER_STRICT_ID_MATCH`, `INDEXER_MANAGER_INDEXERS`
 - `NZBDAV_URL`, `NZBDAV_API_KEY`, `NZBDAV_WEBDAV_URL`, `NZBDAV_WEBDAV_USER`, `NZBDAV_WEBDAV_PASS`
 - `ADDON_BASE_URL`, `ADDON_SHARED_SECRET`
+- `NZBDAV_CATEGORY`
 
 `INDEXER_MANAGER` defaults to `prowlarr`. Set it to `nzbhydra` to target an NZBHydra instance.
 
@@ -76,6 +78,8 @@ When `ADDON_SHARED_SECRET` is set, every request must include `?token=${ADDON_SH
 `INDEXER_MANAGER_CACHE_MINUTES` (optional) overrides the default NZBHydra cache duration (10 minutes). Leave unset to keep the default. Prowlarr ignores this value.
 
 `ADDON_SHARED_SECRET` locks access behind a shared token. Anyone visiting the manifest or stream endpoints must append `?token=<your-secret>`. Stremio supports this out of the box—just add the manifest URL with the token included.
+
+`NZBDAV_CATEGORY` optionally overrides the target NZBDav categories. When set (e.g. `Stremio`), movie jobs are queued to `Stremio_MOVIE`, series to `Stremio_TV`, and everything else to `Stremio_DEFAULT`. Leave unset to keep the per-type categories (`NZBDAV_CATEGORY_MOVIES`, `NZBDAV_CATEGORY_SERIES`, etc.).
 
 See `.env.example` for the authoritative list.
 
