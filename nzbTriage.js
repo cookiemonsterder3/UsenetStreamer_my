@@ -17,8 +17,8 @@ const DEFAULT_OPTIONS = {
   nntpMaxConnections: 60,
   reuseNntpPool: false,
   maxParallelNzbs: Number.POSITIVE_INFINITY,
-  statSampleCount: 8,
-  archiveSampleCount: 8,
+  statSampleCount: 2,
+  archiveSampleCount: 1,
 };
 
 let sharedNntpPoolRecord = null;
@@ -671,6 +671,7 @@ function statSegmentWithClient(client, segmentId, timeoutMs) {
     const timer = setTimeout(() => {
       const err = new Error('STAT timed out');
       err.code = 'STAT_TIMEOUT';
+      err.dropClient = true;
       reject(err);
     }, timeoutMs);
 
@@ -680,6 +681,9 @@ function statSegmentWithClient(client, segmentId, timeoutMs) {
         const error = new Error(err.message || 'STAT failed');
         const codeFromMessage = err.message && err.message.includes('430') ? 'STAT_MISSING' : err.code;
         error.code = err.code ?? codeFromMessage;
+        if (['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EPIPE'].includes(err.code)) {
+          error.dropClient = true;
+        }
         reject(error);
       } else {
         resolve();
@@ -714,6 +718,7 @@ function fetchSegmentBodyWithClient(client, segmentId, timeoutMs) {
     const timer = setTimeout(() => {
       const err = new Error('BODY timed out');
       err.code = 'BODY_TIMEOUT';
+      err.dropClient = true;
       reject(err);
     }, timeoutMs);
 
@@ -723,6 +728,9 @@ function fetchSegmentBodyWithClient(client, segmentId, timeoutMs) {
         const error = new Error(err.message || 'BODY failed');
         error.code = err.code ?? 'BODY_ERROR';
         if (error.code === 430) error.code = 'BODY_MISSING';
+        if (['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EPIPE'].includes(err.code)) {
+          error.dropClient = true;
+        }
         reject(error);
         return;
       }
@@ -744,7 +752,7 @@ async function createNntpPool(config, maxConnections) {
   const connectionCount = Math.max(1, numeric);
 
   const connectTasks = Array.from({ length: connectionCount }, () => createNntpClient(config));
-  let clients = [];
+  let initialClients = [];
   try {
     const settled = await Promise.allSettled(connectTasks);
     const successes = settled.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
@@ -753,35 +761,91 @@ async function createNntpPool(config, maxConnections) {
       await Promise.all(successes.map(closeNntpClient));
       throw failure.reason;
     }
-    clients = successes;
+    initialClients = successes;
   } catch (err) {
     throw err;
   }
 
-  const idle = clients.slice();
+  const idle = initialClients.slice();
   const waiters = [];
+  const allClients = new Set(initialClients);
+  let closing = false;
+
+  const attemptReplacement = () => {
+    if (closing) return;
+    (async () => {
+      try {
+        const replacement = await createNntpClient(config);
+        allClients.add(replacement);
+        if (waiters.length > 0) {
+          waiters.shift()(replacement);
+        } else {
+          idle.push(replacement);
+        }
+      } catch (createErr) {
+        console.warn('[NZB TRIAGE] Failed to create replacement NNTP client', createErr?.message || createErr);
+        if (!closing) {
+          setTimeout(attemptReplacement, 1000);
+        }
+      }
+    })();
+  };
+
+  const scheduleReplacement = (client) => {
+    if (client) {
+      allClients.delete(client);
+      (async () => {
+        try {
+          await closeNntpClient(client);
+        } catch (closeErr) {
+          console.warn('[NZB TRIAGE] Failed to close NNTP client cleanly', closeErr?.message || closeErr);
+        }
+        attemptReplacement();
+      })();
+    } else {
+      attemptReplacement();
+    }
+  };
+
+  const releaseClient = (client, drop) => {
+    if (!client) return;
+    if (drop) {
+      scheduleReplacement(client);
+      return;
+    }
+    if (waiters.length > 0) {
+      waiters.shift()(client);
+    } else {
+      idle.push(client);
+    }
+  };
+
+  const acquireClient = () => new Promise((resolve, reject) => {
+    if (closing) {
+      reject(new Error('NNTP pool closing'));
+      return;
+    }
+    if (idle.length > 0) {
+      resolve(idle.pop());
+    } else {
+      waiters.push(resolve);
+    }
+  });
 
   return {
-    size: clients.length,
-    acquire() {
-      return new Promise((resolve) => {
-        if (idle.length > 0) {
-          resolve(idle.pop());
-        } else {
-          waiters.push(resolve);
-        }
-      });
-    },
-    release(client) {
-      if (!client) return;
-      if (waiters.length > 0) {
-        waiters.shift()(client);
-      } else {
-        idle.push(client);
-      }
+    size: connectionCount,
+    acquire: acquireClient,
+    release(client, options = {}) {
+      const drop = Boolean(options.drop);
+      releaseClient(client, drop);
     },
     async close() {
-      await Promise.all(clients.map(closeNntpClient));
+      closing = true;
+      const clientsToClose = Array.from(allClients);
+      allClients.clear();
+      idle.length = 0;
+      waiters.splice(0, waiters.length).forEach((resolve) => resolve(null));
+      await Promise.all(clientsToClose.map((client) => closeNntpClient(client)));
     },
   };
 }
@@ -789,10 +853,14 @@ async function createNntpPool(config, maxConnections) {
 async function runWithClient(pool, handler) {
   if (!pool) throw new Error('NNTP pool unavailable');
   const client = await pool.acquire();
+  let dropClient = false;
   try {
     return await handler(client);
+  } catch (err) {
+    if (err?.dropClient) dropClient = true;
+    throw err;
   } finally {
-    pool.release(client);
+    pool.release(client, { drop: dropClient });
   }
 }
 
