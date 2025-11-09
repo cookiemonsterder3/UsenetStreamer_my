@@ -1,0 +1,77 @@
+const fs = require('fs');
+const path = require('path');
+
+const CONFIG_DIR = path.join(__dirname);
+const RUNTIME_ENV_FILE = path.join(CONFIG_DIR, 'runtime-env.json');
+let cachedEnv = null;
+
+function ensureConfigDir() {
+  if (!fs.existsSync(CONFIG_DIR)) {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  }
+}
+
+function readRuntimeEnv() {
+  if (cachedEnv) return { ...cachedEnv };
+
+  try {
+    const raw = fs.readFileSync(RUNTIME_ENV_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      cachedEnv = {};
+      Object.keys(parsed).forEach((key) => {
+        const value = parsed[key];
+        if (value === undefined || value === null) return;
+        cachedEnv[key] = String(value);
+      });
+      return { ...cachedEnv };
+    }
+  } catch (error) {
+    // ignore missing/invalid files; we'll recreate on save
+  }
+
+  cachedEnv = {};
+  return {};
+}
+
+function writeRuntimeEnv(envObject) {
+  ensureConfigDir();
+  const sortedKeys = Object.keys(envObject).sort();
+  const data = {};
+  sortedKeys.forEach((key) => {
+    data[key] = envObject[key];
+  });
+  fs.writeFileSync(RUNTIME_ENV_FILE, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+  cachedEnv = { ...data };
+}
+
+function applyRuntimeEnv() {
+  const env = readRuntimeEnv();
+  Object.entries(env).forEach(([key, value]) => {
+    process.env[key] = value;
+  });
+}
+
+function updateRuntimeEnv(updates) {
+  if (!updates || typeof updates !== 'object') return;
+  const current = readRuntimeEnv();
+  Object.entries(updates).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      delete current[key];
+    } else {
+      current[key] = String(value);
+    }
+  });
+  writeRuntimeEnv(current);
+}
+
+function getRuntimeEnv() {
+  return readRuntimeEnv();
+}
+
+module.exports = {
+  applyRuntimeEnv,
+  updateRuntimeEnv,
+  getRuntimeEnv,
+  RUNTIME_ENV_FILE,
+};

@@ -8,7 +8,10 @@ const { pipeline } = require('stream');
 const { promisify } = require('util');
 // webdav is an ES module; we'll import it lazily when first needed
 const path = require('path');
+const runtimeEnv = require('./config/runtimeEnv');
 const { triageAndRank } = require('./nzbTriageRunner');
+
+runtimeEnv.applyRuntimeEnv();
 
 const app = express();
 const port = Number(process.env.PORT || 7000);
@@ -16,6 +19,60 @@ const ADDON_VERSION = '1.2.1';
 
 app.use(cors());
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
+const adminApiRouter = express.Router();
+adminApiRouter.use(express.json({ limit: '1mb' }));
+
+adminApiRouter.get('/config', (req, res) => {
+  const values = collectConfigValues(ADMIN_CONFIG_KEYS);
+  res.json({
+    values,
+    manifestUrl: computeManifestUrl(),
+    runtimeEnvPath: runtimeEnv.RUNTIME_ENV_FILE,
+  });
+});
+
+function scheduleRestart() {
+  setTimeout(() => {
+    console.log('[ADMIN] Restarting service to apply configuration changes...');
+    process.exit(0);
+  }, 300);
+}
+
+adminApiRouter.post('/config', (req, res) => {
+  const payload = req.body || {};
+  const incoming = payload.values;
+  if (!incoming || typeof incoming !== 'object') {
+    res.status(400).json({ error: 'Invalid payload: expected "values" object' });
+    return;
+  }
+
+  const updates = {};
+  ADMIN_CONFIG_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(incoming, key)) {
+      const value = incoming[key];
+      if (value === null || value === undefined) {
+        updates[key] = '';
+      } else if (typeof value === 'boolean') {
+        updates[key] = value ? 'true' : 'false';
+      } else {
+        updates[key] = String(value);
+      }
+    }
+  });
+
+  try {
+    runtimeEnv.updateRuntimeEnv(updates);
+    runtimeEnv.applyRuntimeEnv();
+  } catch (error) {
+    console.error('[ADMIN] Failed to update configuration', error);
+    res.status(500).json({ error: 'Failed to persist configuration changes' });
+    return;
+  }
+
+  res.json({ success: true, manifestUrl: computeManifestUrl(), restarting: true });
+  scheduleRestart();
+});
 
 function extractTokenFromRequest(req) {
   const pathMatch = (req.path || '').match(/^\/([^\/]+)\/(manifest\.json|stream|nzb)(?:\b|\/)/i);
@@ -53,12 +110,16 @@ function ensureSharedSecret(req, res, next) {
   next();
 }
 
+app.use('/admin/api', (req, res, next) => ensureSharedSecret(req, res, next), adminApiRouter);
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
+
 app.use((req, res, next) => {
-  if (req.path.startsWith('/assets/')) {
-    return next();
-  }
+  if (req.path.startsWith('/assets/')) return next();
+  if (req.path.startsWith('/admin') && !req.path.startsWith('/admin/api')) return next();
   return ensureSharedSecret(req, res, next);
 });
+
+// Additional authentication middleware is registered after admin routes are defined
 
 // Configure indexer manager (Prowlarr or NZBHydra)
 const INDEXER_MANAGER = (process.env.INDEXER_MANAGER || 'prowlarr').trim().toLowerCase();
@@ -142,6 +203,22 @@ function parsePathList(value) {
     .map((segment) => (path.isAbsolute(segment) ? segment : path.resolve(process.cwd(), segment)));
 }
 
+function collectConfigValues(keys) {
+  const values = {};
+  keys.forEach((key) => {
+    values[key] = process.env[key] ?? '';
+  });
+  return values;
+}
+
+function computeManifestUrl() {
+  const baseUrl = (process.env.ADDON_BASE_URL || '').trim();
+  if (!baseUrl) return '';
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const tokenSegment = ADDON_SHARED_SECRET ? `/${ADDON_SHARED_SECRET}` : '';
+  return `${normalizedBase}${tokenSegment}/manifest.json`;
+}
+
 function buildTriageNntpConfig() {
   const host = (process.env.NZB_TRIAGE_NNTP_HOST || '').trim();
   if (!host) return null;
@@ -184,6 +261,49 @@ const TRIAGE_BASE_OPTIONS = {
   statSampleCount: TRIAGE_STAT_SAMPLE_COUNT,
   archiveSampleCount: TRIAGE_ARCHIVE_SAMPLE_COUNT,
 };
+
+const ADMIN_CONFIG_KEYS = [
+  'PORT',
+  'ADDON_BASE_URL',
+  'ADDON_SHARED_SECRET',
+  'INDEXER_MANAGER',
+  'INDEXER_MANAGER_URL',
+  'INDEXER_MANAGER_API_KEY',
+  'INDEXER_MANAGER_STRICT_ID_MATCH',
+  'INDEXER_MANAGER_INDEXERS',
+  'INDEXER_MANAGER_CACHE_MINUTES',
+  'NZBDAV_URL',
+  'NZBDAV_API_KEY',
+  'NZBDAV_WEBDAV_URL',
+  'NZBDAV_WEBDAV_USER',
+  'NZBDAV_WEBDAV_PASS',
+  'NZBDAV_CATEGORY',
+  'NZBDAV_CATEGORY_MOVIES',
+  'NZBDAV_CATEGORY_SERIES',
+  'SPECIAL_PROVIDER_ID',
+  'SPECIAL_PROVIDER_URL',
+  'SPECIAL_PROVIDER_SECRET',
+  'NZB_TRIAGE_ENABLED',
+  'NZB_TRIAGE_TIME_BUDGET_MS',
+  'NZB_TRIAGE_MAX_CANDIDATES',
+  'NZB_TRIAGE_PREFERRED_SIZE_GB',
+  'NZB_TRIAGE_PRIORITY_INDEXERS',
+  'NZB_TRIAGE_DOWNLOAD_CONCURRENCY',
+  'NZB_TRIAGE_DOWNLOAD_TIMEOUT_MS',
+  'NZB_TRIAGE_MAX_CONNECTIONS',
+  'NZB_TRIAGE_STAT_TIMEOUT_MS',
+  'NZB_TRIAGE_FETCH_TIMEOUT_MS',
+  'NZB_TRIAGE_MAX_PARALLEL_NZBS',
+  'NZB_TRIAGE_STAT_SAMPLE_COUNT',
+  'NZB_TRIAGE_ARCHIVE_SAMPLE_COUNT',
+  'NZB_TRIAGE_MAX_DECODED_BYTES',
+  'NZB_TRIAGE_NNTP_HOST',
+  'NZB_TRIAGE_NNTP_PORT',
+  'NZB_TRIAGE_NNTP_TLS',
+  'NZB_TRIAGE_NNTP_USER',
+  'NZB_TRIAGE_NNTP_PASS',
+  'NZB_TRIAGE_ARCHIVE_DIRS'
+];
 
 function extractTriageOverrides(query) {
   if (!query || typeof query !== 'object') return {};
