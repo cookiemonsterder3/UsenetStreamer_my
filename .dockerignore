@@ -5,4 +5,6 @@ Dockerfile
 .git
 .gitignore
 .env
+config/runtime-env.json
+config/*.json
 *.md~
