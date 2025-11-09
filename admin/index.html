@@ -48,16 +48,6 @@
             <label>Manager URL
               <input name="INDEXER_MANAGER_URL" type="url" placeholder="http://localhost:9696" />
             </label>
-            <label>Preferred Size (GB)
-              <input name="NZB_TRIAGE_PREFERRED_SIZE_GB" type="number" min="0" step="0.1" placeholder="20" />
-            </label>
-            <label>Paid Indexers (comma separated)
-              <input name="NZB_TRIAGE_PRIORITY_INDEXERS" type="text" placeholder="9,33" />
-              <span class="field-hint">Subset of the above list that gets triaged first. Must be a comma-separated subset of “Indexer IDs / Names”.</span>
-            </label>
-            <label>Max Candidates
-              <input name="NZB_TRIAGE_MAX_CANDIDATES" type="number" min="1" step="1" />
-            </label>
             <label>API Key
               <input name="INDEXER_MANAGER_API_KEY" type="text" autocomplete="off" />
             </label>
@@ -125,8 +115,15 @@
             <label>NNTP Password
               <input name="NZB_TRIAGE_NNTP_PASS" type="password" autocomplete="new-password" />
             </label>
+            <label>Preferred Size (GB)
+              <input name="NZB_TRIAGE_PREFERRED_SIZE_GB" type="number" min="0" step="0.1" placeholder="20" />
+            </label>
             <label>Max Candidates
               <input name="NZB_TRIAGE_MAX_CANDIDATES" type="number" min="1" step="1" />
+            </label>
+            <label>Paid Indexers (comma separated)
+              <input name="NZB_TRIAGE_PRIORITY_INDEXERS" type="text" placeholder="9,33" />
+              <span class="field-hint">Subset of the above list that gets triaged first. Must be a comma-separated subset of “Indexer IDs / Names”.</span>
             </label>
             <label>Max NNTP Connections
               <input name="NZB_TRIAGE_MAX_CONNECTIONS" type="number" min="1" step="1" />
