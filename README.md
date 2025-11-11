@@ -10,6 +10,10 @@ UsenetStreamer is a Stremio addon that bridges a Usenet indexer manager (Prowlar
    <strong><a href="https://buymeacoffee.com/gaikwadsank">Buy me a coffee to keep this addon moving!</a></strong>
 </p>
 
+<h2 align="center" style="margin-top:0.5em;">
+   <a href="https://discord.gg/NJsprZyz">💬 Join our Discord for community discussions and support</a>
+</h2>
+
 
 ## Features
 
@@ -129,3 +133,7 @@ Tips:
 <h1 align="center" style="font-size:2.5rem; margin-top:2.5em;">
    <a href="https://buymeacoffee.com/gaikwadsank">☕ Buy me a coffee to support ongoing development!</a>
 </h1>
+
+<h2 align="center" style="margin-top:0.25em;">
+   <a href="https://discord.gg/NJsprZyz">💬 Join our Discord community for discussions and support</a>
+</h2>
