@@ -44,19 +44,34 @@ async function testIndexerConnection(values) {
     throw new Error(`Unexpected response ${response.status} from Prowlarr`);
   }
 
-  const params = {};
+  // NZBHydra uses /api endpoint with query parameters for all operations
+  const params = { t: 'caps', o: 'json' };
   if (apiKey) params.apikey = apiKey;
-  const response = await axios.get(`${baseUrl}/api/stats`, {
+  
+  const response = await axios.get(`${baseUrl}/api`, {
     params,
     timeout,
     validateStatus: () => true,
   });
+  
   if (response.status === 200) {
-    const version = response.data?.appVersion || response.data?.version || response.data?.nzbhydra2Version;
+    // Successful response from NZBHydra API
+    // Try to extract version from various possible response formats
+    let version = null;
+    if (response.data?.version) {
+      version = response.data.version;
+    } else if (response.data?.server?.version) {
+      version = response.data.server.version;
+    } else if (response.data?.['@attributes']?.version) {
+      version = response.data['@attributes'].version;
+    }
     return `Connected to NZBHydra${version ? ` (${version})` : ''}`;
   }
   if (response.status === 401 || response.status === 403) {
     throw new Error('Unauthorized: check NZBHydra API key');
+  }
+  if (response.status === 400) {
+    throw new Error('Bad request to NZBHydra - verify URL format and API key');
   }
   throw new Error(`Unexpected response ${response.status} from NZBHydra`);
 }
