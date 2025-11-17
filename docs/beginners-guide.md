@@ -6,7 +6,7 @@ This guide walks absolute beginners through everything required to expose Usenet
 
 1. **Usenet provider:** e.g., Newshosting, Easynews, Eweka. Without a provider you cannot download anything.
 2. **Indexer platform:** Prowlarr needs at least one NZB indexer/API key (NZBGeek, Crawler, DrunkenSlug, etc.).
-3. **DuckDNS account:** free dynamic DNS name used later for HTTPS. Sign up at [https://www.duckdns.org](https://www.duckdns.org), create a subdomain (e.g., `mystreamer`), and note the API token—you’ll use it to keep that hostname pointed at your VPS.
+3. **DuckDNS account:** free dynamic DNS name used later for HTTPS. Sign up at [https://www.duckdns.org](https://www.duckdns.org), create a subdomain (e.g., `mystreamer`), and point it at your VPS IP.
 
 ## 1. Rent a VPS and Log In
 
@@ -98,15 +98,14 @@ services:
       - "7000:7000"
     environment:
       ADDON_SHARED_SECRET: ${ADDON_SECRET:?set ADDON_SECRET}
-      ADDON_BASE_URL: https://your-duckdns-subdomain.duckdns.org/${ADDON_SECRET}/
-      INDEXER_MANAGER: prowlarr
+      ADDON_BASE_URL: https://your-duckdns-subdomain.duckdns.org/
       INDEXER_MANAGER_URL: http://prowlarr:9696
-      INDEXER_MANAGER_API_KEY: change-me-after-prowlarr-setup
       NZBDAV_URL: http://nzbdav:3000
-      NZBDAV_API_KEY: change-this-now
       NZBDAV_WEBDAV_URL: http://nzbdav:3000
-      NZBDAV_WEBDAV_USER: admin
-      NZBDAV_WEBDAV_PASS: admin
+
+# Notes:
+# - Keep `ADDON_BASE_URL` secret-free; the addon automatically appends `/your-secret/` when serving manifests.
+# - All API keys, NZBDav credentials, and advanced options can be filled in later through the admin dashboard.
 ```
 
 ### `.env` for secrets
@@ -127,8 +126,8 @@ docker compose up -d
 Visit the services:
 
 - `http://your-vps-ip:9696` – finish Prowlarr onboarding, create API key, add indexers.
-- `http://your-vps-ip:3000` – configure NZBDav: add your Usenet provider credentials, set up WebDAV username/password, and copy the API key for UsenetStreamer.
-- `http://your-vps-ip:7000/<ADDON_SECRET>/admin/` – enter Prowlarr and NZBDav connection details.
+- `http://your-vps-ip:3000` – configure NZBDav: add your Usenet provider credentials, set up WebDAV username/password, and note its API URL for later.
+- `http://your-vps-ip:7000/<ADDON_SECRET>/admin/` – enter the Prowlarr/NZBDav URLs and API keys via the dashboard (no need to hardcode them in `docker-compose.yml`).
 
 ## 6. Open Firewall Ports
 
@@ -142,7 +141,7 @@ sudo ufw allow 7000/tcp
 sudo ufw enable
 ```
 
-Also open the same ports inside your cloud provider security group.
+**Important:** your cloud provider usually has its own firewall. Log into your VPS dashboard and add inbound rules for ports `80`, `443`, `7000`, `3000`, `9696`, and `22` (TCP). On Oracle/Vultr/AWS you’ll find this under “Security List,” “Firewall,” or “VPC security group.” If you skip this step, nothing outside the VPS will reach your services even though UFW allows them.
 
 ## 7. Configure DuckDNS
 
@@ -182,7 +181,6 @@ sudo systemctl reload caddy
 
 - Update `INDEXER_MANAGER_API_KEY`, NZBDav credentials, and `ADDON_BASE_URL` inside the UsenetStreamer dashboard (now reachable at your DuckDNS URL).
 - Run the **Connection Tests** tab to confirm every service is reachable.
-- Add `https://mystreamer.duckdns.org/super-secret-token/manifest.json` inside Stremio on each device.
-- Stay current with `docker compose pull && docker compose up -d`.
+- Add `https://mystreamer.duckdns.org/super-secret-token/manifest.json` inside Stremio.
 
 Need more help? Jump into [Discord](https://discord.gg/NJsprZyz) and share screenshots/logs.
