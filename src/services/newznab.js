@@ -3,7 +3,7 @@ const { parseStringPromise: parseXmlString } = require('xml2js');
 const { stripTrailingSlashes } = require('../utils/config');
 
 const MAX_NEWZNAB_INDEXERS = 20;
-const NEWZNAB_FIELD_SUFFIXES = ['ENDPOINT', 'API_KEY', 'API_PATH', 'NAME', 'INDEXER_ENABLED'];
+const NEWZNAB_FIELD_SUFFIXES = ['ENDPOINT', 'API_KEY', 'API_PATH', 'NAME', 'INDEXER_ENABLED', 'PAID'];
 const NEWZNAB_NUMBERED_KEYS = [];
 for (let i = 1; i <= MAX_NEWZNAB_INDEXERS; i += 1) {
   const idx = String(i).padStart(2, '0');
@@ -268,6 +268,8 @@ function buildIndexerConfig(source, idx, { includeEmpty = false } = {}) {
   const name = toTrimmedString(source[`NEWZNAB_NAME_${key}`]);
   const enabledRaw = source[`NEWZNAB_INDEXER_ENABLED_${key}`];
   const enabled = parseBoolean(enabledRaw, true);
+  const paidRaw = source[`NEWZNAB_PAID_${key}`];
+  const isPaid = parseBoolean(paidRaw, false);
 
   const hasAnyValue = endpoint || apiKey || apiPathRaw || name || enabledRaw !== undefined;
   if (!hasAnyValue && !includeEmpty) {
@@ -287,6 +289,7 @@ function buildIndexerConfig(source, idx, { includeEmpty = false } = {}) {
     name,
     displayName,
     enabled,
+    isPaid,
     slug,
     dedupeKey: slug || `indexer-${key}`,
     baseUrl: normalizedEndpoint ? `${normalizedEndpoint}${apiPath}` : '',
