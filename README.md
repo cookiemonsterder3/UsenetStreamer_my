@@ -41,6 +41,7 @@
 - Release titles parsed for resolution, quality, and audio language, enabling `quality_then_size` or `language_quality_size` sorting.
 - Preferred language groups (single or multiple) rise to the top and display with clear 🌐 labels.
 - Optional dedupe filter (enabled by default) collapses identical releases; toggle it off to inspect every hit.
+- A single per-quality cap (e.g., 4) keeps only the first few results for each resolution before falling back to the next tier.
 
 ### ⚡ Instant Streams from NZBDav
 - Completed NZBDav jobs are recognized automatically and surfaced with a ⚡ tag.
@@ -158,7 +159,7 @@ This allows forks or containerized deployments to update upstream code without l
 - `INDEXER_MANAGER` (default `prowlarr`) — set `nzbhydra` for Hydra.
 - `INDEXER_MANAGER_URL`, `INDEXER_MANAGER_API_KEY`, `INDEXER_MANAGER_INDEXERS`, `INDEXER_MANAGER_STRICT_ID_MATCH`.
 - `ADDON_BASE_URL` (must be HTTPS), `ADDON_SHARED_SECRET` (required for security).
-- `NZB_SORT_MODE` (`quality_then_size` or `language_quality_size`), `NZB_PREFERRED_LANGUAGE` (comma-separated to prioritize multiple languages), `NZB_MAX_RESULT_SIZE_GB` (defaults to 30 GB, set 0 for no cap), `NZB_DEDUP_ENABLED` (collapse duplicate releases by title/indexer/size).
+- `NZB_SORT_MODE` (`quality_then_size` or `language_quality_size`), `NZB_PREFERRED_LANGUAGE` (comma-separated to prioritize multiple languages), `NZB_MAX_RESULT_SIZE_GB` (defaults to 30 GB, set 0 for no cap), `NZB_DEDUP_ENABLED` (collapse duplicate releases by title/indexer/size), `NZB_ALLOWED_RESOLUTIONS` (whitelist of qualities to keep), `NZB_RESOLUTION_LIMIT_PER_QUALITY` (optional uniform cap; e.g. `4` keeps at most four streams for each enabled resolution).
 - `NZBDAV_URL`, `NZBDAV_API_KEY`, `NZBDAV_WEBDAV_URL`, `NZBDAV_WEBDAV_USER`, `NZBDAV_WEBDAV_PASS`, `NZBDAV_CATEGORY*`.
 - `NZBDAV_HISTORY_FETCH_LIMIT`, `NZBDAV_CACHE_TTL_MINUTES` (controls instant detection cache).
 - `NZB_TRIAGE_*` for NNTP health checks (host, port, user/pass, timeouts, candidate counts, reuse pool, etc.).

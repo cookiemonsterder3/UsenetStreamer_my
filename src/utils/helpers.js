@@ -55,6 +55,24 @@ function filterByAllowedResolutions(results, allowedResolutions) {
   });
 }
 
+function applyResolutionLimits(results, perQualityLimit) {
+  if (!Array.isArray(results) || !Number.isFinite(perQualityLimit) || perQualityLimit <= 0) {
+    return results;
+  }
+  const counters = new Map();
+  return results.filter((result) => {
+    const resolutionLabel = result?.resolution || result?.release?.resolution || null;
+    const token = resolutionLabel ? String(resolutionLabel).trim().toLowerCase() : null;
+    const normalized = token || 'unknown';
+    const current = counters.get(normalized) || 0;
+    if (current >= perQualityLimit) {
+      return false;
+    }
+    counters.set(normalized, current + 1);
+    return true;
+  });
+}
+
 function normalizePreferredLanguageList(preferredLanguages) {
   if (!preferredLanguages) return [];
   const list = Array.isArray(preferredLanguages)
@@ -146,11 +164,12 @@ function sortAnnotatedResults(results, sortMode, preferredLanguages) {
 }
 
 function prepareSortedResults(results, options = {}) {
-  const { maxSizeBytes, sortMode, preferredLanguages, allowedResolutions } = options;
+  const { maxSizeBytes, sortMode, preferredLanguages, allowedResolutions, resolutionLimitPerQuality } = options;
   let working = Array.isArray(results) ? results.slice() : [];
   working = filterByAllowedResolutions(working, allowedResolutions);
   working = applyMaxSizeFilter(working, maxSizeBytes);
   working = sortAnnotatedResults(working, sortMode, preferredLanguages);
+  working = applyResolutionLimits(working, resolutionLimitPerQuality);
   return working;
 }
 
@@ -278,6 +297,7 @@ module.exports = {
   annotateNzbResult,
   applyMaxSizeFilter,
   filterByAllowedResolutions,
+  applyResolutionLimits,
   resultMatchesPreferredLanguage,
   getPreferredLanguageMatches,
   getPreferredLanguageMatch,

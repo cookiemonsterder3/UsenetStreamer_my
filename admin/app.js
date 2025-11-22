@@ -975,6 +975,8 @@
     qualityCheckboxes.forEach((checkbox) => {
       checkbox.addEventListener('change', () => {
         syncQualityHiddenInput();
+        syncResolutionLimitDisabledStates();
+        syncSaveGuard();
       });
     });
   }

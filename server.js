@@ -287,6 +287,15 @@ function parseAllowedResolutionList(rawValue) {
     .filter(Boolean);
 }
 
+function parseResolutionLimitValue(rawValue) {
+  if (rawValue === undefined || rawValue === null) return null;
+  const normalized = String(rawValue).trim();
+  if (!normalized) return null;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return Math.floor(numeric);
+}
+
 function refreshPaidIndexerTokens() {
   const paidTokens = new Set();
   (TRIAGE_PRIORITY_INDEXERS || []).forEach((token) => {
@@ -399,6 +408,7 @@ let INDEXER_MAX_RESULT_SIZE_BYTES = toSizeBytesFromGb(
     : DEFAULT_MAX_RESULT_SIZE_GB
 );
 let ALLOWED_RESOLUTIONS = parseAllowedResolutionList(process.env.NZB_ALLOWED_RESOLUTIONS);
+let RESOLUTION_LIMIT_PER_QUALITY = parseResolutionLimitValue(process.env.NZB_RESOLUTION_LIMIT_PER_QUALITY);
 let TRIAGE_ENABLED = toBoolean(process.env.NZB_TRIAGE_ENABLED, false);
 let TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 35000);
 let TRIAGE_MAX_CANDIDATES = toPositiveInt(process.env.NZB_TRIAGE_MAX_CANDIDATES, 25);
@@ -505,6 +515,7 @@ function rebuildRuntimeConfig({ log = true } = {}) {
       : DEFAULT_MAX_RESULT_SIZE_GB
   );
   ALLOWED_RESOLUTIONS = parseAllowedResolutionList(process.env.NZB_ALLOWED_RESOLUTIONS);
+  RESOLUTION_LIMIT_PER_QUALITY = parseResolutionLimitValue(process.env.NZB_RESOLUTION_LIMIT_PER_QUALITY);
 
   TRIAGE_ENABLED = toBoolean(process.env.NZB_TRIAGE_ENABLED, false);
   TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 35000);
@@ -549,6 +560,7 @@ function rebuildRuntimeConfig({ log = true } = {}) {
       newznabEnabled: NEWZNAB_ENABLED,
       triageEnabled: TRIAGE_ENABLED,
       allowedResolutions: ALLOWED_RESOLUTIONS,
+      resolutionLimitPerQuality: RESOLUTION_LIMIT_PER_QUALITY,
     });
   }
 
@@ -573,6 +585,7 @@ const ADMIN_CONFIG_KEYS = [
   'NZB_MAX_RESULT_SIZE_GB',
   'NZB_DEDUP_ENABLED',
   'NZB_ALLOWED_RESOLUTIONS',
+  'NZB_RESOLUTION_LIMIT_PER_QUALITY',
   'NZBDAV_URL',
   'NZBDAV_API_KEY',
   'NZBDAV_WEBDAV_URL',
@@ -1449,6 +1462,7 @@ async function streamHandler(req, res) {
       preferredLanguages: resolvedPreferredLanguages,
       maxSizeBytes: effectiveMaxSizeBytes,
       allowedResolutions: ALLOWED_RESOLUTIONS,
+      resolutionLimitPerQuality: RESOLUTION_LIMIT_PER_QUALITY,
     });
     if (dedupeEnabled) {
       finalNzbResults = dedupeResultsByTitle(finalNzbResults);
