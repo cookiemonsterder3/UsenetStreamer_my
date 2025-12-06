@@ -791,6 +791,7 @@ const ADMIN_CONFIG_KEYS = [
   'EASYNEWS_ENABLED',
   'EASYNEWS_USERNAME',
   'EASYNEWS_PASSWORD',
+  'EASYNEWS_TREAT_AS_INDEXER',
   'TMDB_API_KEY',
   'TMDB_SEARCH_LANGUAGES',
   'TMDB_SEARCH_MODE',
@@ -1446,21 +1447,25 @@ async function streamHandler(req, res) {
 
       // Start ID-based searches immediately in background
       const idSearchPromises = [];
+      const idSearchStartTs = Date.now();
       if (searchPlans.length > 0) {
         console.log(`${INDEXER_LOG_PREFIX} Starting ${searchPlans.length} ID-based search(es) immediately`);
         idSearchPromises.push(...searchPlans.map((plan) => {
           console.log(`${INDEXER_LOG_PREFIX} Dispatching early ID plan`, plan);
+          const planStartTs = Date.now();
           return Promise.allSettled([
             executeManagerPlanWithBackoff(plan),
             executeNewznabPlan(plan),
-          ]).then((settled) => ({ plan, settled }));
+          ]).then((settled) => ({ plan, settled, startTs: planStartTs, endTs: Date.now() }));
         }));
       }
 
       // Now wait for TMDb to get localized titles (if applicable)
+      const tmdbWaitStartTs = Date.now();
       if (tmdbMetadataPromise) {
         console.log('[TMDB] Waiting for TMDb metadata to add localized searches');
         tmdbMetadata = await tmdbMetadataPromise;
+        console.log(`[TMDB] TMDb metadata fetch completed in ${Date.now() - tmdbWaitStartTs} ms`);
         if (tmdbMetadata) {
           // Create a metadata object compatible with existing code
           metaSources.push({
@@ -1474,9 +1479,11 @@ async function streamHandler(req, res) {
       }
 
       // Wait for Cinemeta if applicable
+      const cinemetaWaitStartTs = Date.now();
       if (cinemetaPromise) {
         console.log('[CINEMETA] Waiting for Cinemeta metadata');
         cinemetaMeta = await cinemetaPromise;
+        console.log(`[CINEMETA] Cinemeta fetch completed in ${Date.now() - cinemetaWaitStartTs} ms`);
         if (cinemetaMeta) {
           metaSources.push(cinemetaMeta);
         }
@@ -1500,9 +1507,11 @@ async function streamHandler(req, res) {
       const shouldAddTextSearch = shouldForceTextSearch || (!INDEXER_MANAGER_STRICT_ID_MATCH && !incomingTvdbId);
 
       if (shouldAddTextSearch) {
-        const fallbackIdentifier = incomingImdbId || baseIdentifier;
         const textQueryCandidate = textQueryParts.join(' ').trim();
-        textQueryFallbackValue = (textQueryCandidate || fallbackIdentifier).trim();
+        // Only use fallback identifier if we don't have TMDb titles coming
+        const hasTmdbTitles = metaSources.some(s => s?._tmdbTitles?.length > 0);
+        const fallbackIdentifier = hasTmdbTitles ? null : (incomingImdbId || baseIdentifier);
+        textQueryFallbackValue = (textQueryCandidate || fallbackIdentifier || '').trim();
         if (textQueryFallbackValue) {
           const addedTextPlan = addPlan('search', { rawQuery: textQueryFallbackValue });
           if (addedTextPlan) {
@@ -1511,7 +1520,7 @@ async function streamHandler(req, res) {
             console.log(`${INDEXER_LOG_PREFIX} Text search plan already present`, { query: textQueryFallbackValue });
           }
         } else {
-          console.log(`${INDEXER_LOG_PREFIX} Skipping text search plan; insufficient metadata`);
+          console.log(`${INDEXER_LOG_PREFIX} Skipping text search plan; will use TMDb titles instead`);
         }
 
         // TMDb multi-language searches: add search plans for each configured language
@@ -1629,7 +1638,26 @@ async function streamHandler(req, res) {
             strictMode: easynewsStrictMode,
             specialTextOnly: Boolean(isSpecialRequest || requestLacksIdentifiers),
           };
+          console.log('[EASYNEWS] Prepared search params, will run in parallel with NZB searches');
         }
+      }
+
+      // Start Easynews search in parallel if params are ready
+      let easynewsPromise = null;
+      if (easynewsSearchParams) {
+        console.log('[EASYNEWS] Starting search in parallel');
+        easynewsPromise = easynewsService.searchEasynews(easynewsSearchParams)
+          .then((results) => {
+            if (Array.isArray(results) && results.length > 0) {
+              console.log('[EASYNEWS] Retrieved results', { count: results.length, query: easynewsSearchParams.rawQuery });
+              return results;
+            }
+            return [];
+          })
+          .catch((error) => {
+            console.warn('[EASYNEWS] Search failed', error.message);
+            return [];
+          });
       }
 
       const deriveResultKey = (result) => {
@@ -1650,10 +1678,13 @@ async function streamHandler(req, res) {
       const planSummaries = [];
 
       // Process early ID-based searches that are already running
+      const idProcessStartTs = Date.now();
       const idPlanResults = await Promise.all(idSearchPromises);
+      console.log(`${INDEXER_LOG_PREFIX} ID-based searches completed in ${Date.now() - idSearchStartTs} ms total`);
       const processedIdPlans = new Set();
       
-      for (const { plan, settled } of idPlanResults) {
+      for (const { plan, settled, startTs, endTs } of idPlanResults) {
+        console.log(`${INDEXER_LOG_PREFIX} ID plan execution time: ${endTs - startTs} ms for "${plan.query}"`);
         processedIdPlans.add(`${plan.type}|${plan.query}`);
         const managerSet = settled[0];
         const newznabSet = settled[1];
@@ -1699,6 +1730,8 @@ async function streamHandler(req, res) {
 
       // Now execute remaining text-based search plans (exclude already-processed ID plans)
       const remainingPlans = searchPlans.filter(p => !processedIdPlans.has(`${p.type}|${p.query}`));
+      console.log(`${INDEXER_LOG_PREFIX} Executing ${remainingPlans.length} text-based search plan(s)`);
+      const textSearchStartTs = Date.now();
       const planExecutions = remainingPlans.map((plan) => {
         console.log(`${INDEXER_LOG_PREFIX} Dispatching plan`, plan);
         return Promise.allSettled([
@@ -1748,6 +1781,7 @@ async function streamHandler(req, res) {
       });
 
       const planResultsSettled = await Promise.all(planExecutions);
+      console.log(`${INDEXER_LOG_PREFIX} Text-based searches completed in ${Date.now() - textSearchStartTs} ms`);
 
       for (const result of planResultsSettled) {
         const { plan } = result;
@@ -1863,23 +1897,23 @@ async function streamHandler(req, res) {
         })
         .map((result) => ({ ...result, _sourceType: 'nzb' }));
 
-      if (easynewsSearchParams) {
-        try {
-          const easynewsResults = await easynewsService.searchEasynews(easynewsSearchParams);
-          if (Array.isArray(easynewsResults) && easynewsResults.length > 0) {
-            console.log('[EASYNEWS] Added results', { count: easynewsResults.length, query: easynewsSearchParams.rawQuery });
-            easynewsResults.forEach((item) => {
-              const enriched = {
-                ...item,
-                _sourceType: 'easynews',
-                indexer: item.indexer || 'Easynews',
-                indexerId: item.indexerId || 'easynews',
-              };
-              finalNzbResults.push(enriched);
-            });
-          }
-        } catch (easynewsError) {
-          console.warn('[EASYNEWS] Search failed', easynewsError.message);
+      // Wait for Easynews results if search was started
+      const easynewsWaitStartTs = Date.now();
+      if (easynewsPromise) {
+        console.log('[EASYNEWS] Waiting for parallel Easynews search to complete');
+        const easynewsResults = await easynewsPromise;
+        console.log(`[EASYNEWS] Easynews search completed in ${Date.now() - easynewsWaitStartTs} ms`);
+        if (Array.isArray(easynewsResults) && easynewsResults.length > 0) {
+          console.log('[EASYNEWS] Adding results to final list', { count: easynewsResults.length });
+          easynewsResults.forEach((item) => {
+            const enriched = {
+              ...item,
+              _sourceType: 'easynews',
+              indexer: item.indexer || 'Easynews',
+              indexerId: item.indexerId || 'easynews',
+            };
+            finalNzbResults.push(enriched);
+          });
         }
       }
 
@@ -1950,13 +1984,37 @@ async function streamHandler(req, res) {
         combinedHealthTokens = combinedHealthTokens.concat(directPaidTokens);
       }
     }
+    // Check if Easynews should be treated as indexer
+    const EASYNEWS_TREAT_AS_INDEXER = toBoolean(process.env.EASYNEWS_TREAT_AS_INDEXER, false);
+    if (EASYNEWS_TREAT_AS_INDEXER) {
+      const easynewsToken = 'easynews';
+      const normalizedTokens = new Set((combinedHealthTokens || []).map((token) => normalizeIndexerToken(token)).filter(Boolean));
+      if (!normalizedTokens.has(easynewsToken)) {
+        combinedHealthTokens = [...combinedHealthTokens, easynewsToken];
+      }
+    }
+
     const serializedIndexerTokens = TRIAGE_SERIALIZED_INDEXERS.length > 0
       ? TRIAGE_SERIALIZED_INDEXERS
       : combinedHealthTokens;
     const healthIndexerSet = new Set((combinedHealthTokens || []).map((token) => normalizeIndexerToken(token)).filter(Boolean));
+    console.log(`[NZB TRIAGE] Easynews health check mode: ${EASYNEWS_TREAT_AS_INDEXER ? 'ENABLED' : 'DISABLED'}`);
+    
     const triagePool = healthIndexerSet.size > 0
-      ? finalNzbResults.filter((result) => nzbMatchesIndexer(result, healthIndexerSet))
+      ? finalNzbResults.filter((result) => {
+          // Include regular indexer matches
+          if (nzbMatchesIndexer(result, healthIndexerSet)) {
+            return true;
+          }
+          // Include Easynews if flag is enabled
+          if (EASYNEWS_TREAT_AS_INDEXER && result._sourceType === 'easynews') {
+            console.log(`[NZB TRIAGE] Including Easynews result in triage pool: ${result.title}`);
+            return true;
+          }
+          return false;
+        })
       : [];
+    console.log(`[NZB TRIAGE] Triage pool size: ${triagePool.length} (from ${finalNzbResults.length} total results)`);
     const getDecisionStatus = (candidate) => {
       const decision = triageDecisions.get(candidate.downloadUrl);
       return decision && decision.status ? String(decision.status).toLowerCase() : null;
