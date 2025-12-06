@@ -391,10 +391,54 @@ async function testNewznabSearch(values) {
   return `${baseMessage}${summaries ? ` (${summaries})` : ''}.${sampleMessage}${errorMessage}`.trim();
 }
 
+async function testTmdbConnection(values) {
+  const apiKey = (values?.TMDB_API_KEY || '').trim();
+  if (!apiKey) throw new Error('TMDb API Key is required');
+  
+  const timeout = 8000;
+  
+  try {
+    // Test the API key by fetching configuration
+    const response = await axios.request({
+      method: 'GET',
+      url: 'https://api.themoviedb.org/3/configuration',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
+      },
+      timeout,
+      validateStatus: () => true,
+    });
+
+    if (response.status === 401) {
+      throw new Error('Invalid API key: check your TMDb Read Access Token (v4 auth)');
+    }
+    if (response.status === 403) {
+      throw new Error('API key forbidden: ensure you are using a v4 Read Access Token');
+    }
+    if (response.status >= 400) {
+      throw new Error(`TMDb API returned status ${response.status}`);
+    }
+
+    // Verify the response has expected structure
+    if (!response.data?.images?.base_url) {
+      throw new Error('Unexpected TMDb response format');
+    }
+
+    return 'TMDb API connection successful';
+  } catch (error) {
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      throw new Error('TMDb API request timed out');
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   testIndexerConnection,
   testNzbdavConnection,
   testUsenetConnection,
   testNewznabConnection,
   testNewznabSearch,
+  testTmdbConnection,
 };

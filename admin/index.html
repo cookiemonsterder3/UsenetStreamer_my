@@ -375,6 +375,112 @@
         </section>
 
         <section class="group">
+          <h3>TMDb Metadata & Localization (Optional)</h3>
+          <p class="hint">When enabled, fetches metadata directly from TMDb (skips Cinemeta) and adds localized title searches for non-English content. Example: A Telugu movie will search with its original Telugu title, English title, and any additional languages you select below.</p>
+          <div class="field-grid">
+            <label>TMDb API Key
+              <input name="TMDB_API_KEY" type="password" autocomplete="new-password" placeholder="eyJ..." />
+              <span class="field-hint">Get your Read Access Token (v4 auth) from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>. When provided, TMDb becomes the primary metadata source.</span>
+            </label>
+            <label>Additional Languages (Optional)
+              <span class="field-hint">Select additional languages to search with, along with auto-detected language. Leave empty to use only auto-detected language.</span>
+            </label>
+            <div class="language-multiselect wide-field" data-tmdb-language-selector>
+              <span class="field-label">Search Languages</span>
+              <input type="hidden" name="TMDB_SEARCH_LANGUAGES" data-tmdb-language-hidden />
+              <div class="language-checkbox-grid">
+                <label class="checkbox"><input type="checkbox" value="en-US" data-tmdb-language-option /> <span>English (US)</span></label>
+                <label class="checkbox"><input type="checkbox" value="en-GB" data-tmdb-language-option /> <span>English (UK)</span></label>
+                <label class="checkbox"><input type="checkbox" value="en-CA" data-tmdb-language-option /> <span>English (Canada)</span></label>
+                <label class="checkbox"><input type="checkbox" value="en-AU" data-tmdb-language-option /> <span>English (Australia)</span></label>
+                <label class="checkbox"><input type="checkbox" value="hi-IN" data-tmdb-language-option /> <span>Hindi</span></label>
+                <label class="checkbox"><input type="checkbox" value="ta-IN" data-tmdb-language-option /> <span>Tamil</span></label>
+                <label class="checkbox"><input type="checkbox" value="te-IN" data-tmdb-language-option /> <span>Telugu</span></label>
+                <label class="checkbox"><input type="checkbox" value="ml-IN" data-tmdb-language-option /> <span>Malayalam</span></label>
+                <label class="checkbox"><input type="checkbox" value="kn-IN" data-tmdb-language-option /> <span>Kannada</span></label>
+                <label class="checkbox"><input type="checkbox" value="bn-IN" data-tmdb-language-option /> <span>Bengali</span></label>
+                <label class="checkbox"><input type="checkbox" value="mr-IN" data-tmdb-language-option /> <span>Marathi</span></label>
+                <label class="checkbox"><input type="checkbox" value="gu-IN" data-tmdb-language-option /> <span>Gujarati</span></label>
+                <label class="checkbox"><input type="checkbox" value="pa-IN" data-tmdb-language-option /> <span>Punjabi</span></label>
+                <label class="checkbox"><input type="checkbox" value="ur-PK" data-tmdb-language-option /> <span>Urdu</span></label>
+                <label class="checkbox"><input type="checkbox" value="zh-CN" data-tmdb-language-option /> <span>Chinese (Simplified)</span></label>
+                <label class="checkbox"><input type="checkbox" value="zh-TW" data-tmdb-language-option /> <span>Chinese (Traditional)</span></label>
+                <label class="checkbox"><input type="checkbox" value="zh-HK" data-tmdb-language-option /> <span>Chinese (Hong Kong)</span></label>
+                <label class="checkbox"><input type="checkbox" value="ja-JP" data-tmdb-language-option /> <span>Japanese</span></label>
+                <label class="checkbox"><input type="checkbox" value="ko-KR" data-tmdb-language-option /> <span>Korean</span></label>
+                <label class="checkbox"><input type="checkbox" value="es-ES" data-tmdb-language-option /> <span>Spanish (Spain)</span></label>
+                <label class="checkbox"><input type="checkbox" value="es-MX" data-tmdb-language-option /> <span>Spanish (Mexico)</span></label>
+                <label class="checkbox"><input type="checkbox" value="es-AR" data-tmdb-language-option /> <span>Spanish (Argentina)</span></label>
+                <label class="checkbox"><input type="checkbox" value="pt-BR" data-tmdb-language-option /> <span>Portuguese (Brazil)</span></label>
+                <label class="checkbox"><input type="checkbox" value="pt-PT" data-tmdb-language-option /> <span>Portuguese (Portugal)</span></label>
+                <label class="checkbox"><input type="checkbox" value="fr-FR" data-tmdb-language-option /> <span>French (France)</span></label>
+                <label class="checkbox"><input type="checkbox" value="fr-CA" data-tmdb-language-option /> <span>French (Canada)</span></label>
+                <label class="checkbox"><input type="checkbox" value="de-DE" data-tmdb-language-option /> <span>German (Germany)</span></label>
+                <label class="checkbox"><input type="checkbox" value="de-AT" data-tmdb-language-option /> <span>German (Austria)</span></label>
+                <label class="checkbox"><input type="checkbox" value="de-CH" data-tmdb-language-option /> <span>German (Switzerland)</span></label>
+                <label class="checkbox"><input type="checkbox" value="it-IT" data-tmdb-language-option /> <span>Italian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ru-RU" data-tmdb-language-option /> <span>Russian</span></label>
+                <label class="checkbox"><input type="checkbox" value="uk-UA" data-tmdb-language-option /> <span>Ukrainian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ar-SA" data-tmdb-language-option /> <span>Arabic</span></label>
+                <label class="checkbox"><input type="checkbox" value="ar-AE" data-tmdb-language-option /> <span>Arabic (UAE)</span></label>
+                <label class="checkbox"><input type="checkbox" value="he-IL" data-tmdb-language-option /> <span>Hebrew</span></label>
+                <label class="checkbox"><input type="checkbox" value="tr-TR" data-tmdb-language-option /> <span>Turkish</span></label>
+                <label class="checkbox"><input type="checkbox" value="fa-IR" data-tmdb-language-option /> <span>Persian</span></label>
+                <label class="checkbox"><input type="checkbox" value="sv-SE" data-tmdb-language-option /> <span>Swedish</span></label>
+                <label class="checkbox"><input type="checkbox" value="no-NO" data-tmdb-language-option /> <span>Norwegian</span></label>
+                <label class="checkbox"><input type="checkbox" value="da-DK" data-tmdb-language-option /> <span>Danish</span></label>
+                <label class="checkbox"><input type="checkbox" value="fi-FI" data-tmdb-language-option /> <span>Finnish</span></label>
+                <label class="checkbox"><input type="checkbox" value="nl-NL" data-tmdb-language-option /> <span>Dutch</span></label>
+                <label class="checkbox"><input type="checkbox" value="nl-BE" data-tmdb-language-option /> <span>Dutch (Belgium)</span></label>
+                <label class="checkbox"><input type="checkbox" value="pl-PL" data-tmdb-language-option /> <span>Polish</span></label>
+                <label class="checkbox"><input type="checkbox" value="cs-CZ" data-tmdb-language-option /> <span>Czech</span></label>
+                <label class="checkbox"><input type="checkbox" value="sk-SK" data-tmdb-language-option /> <span>Slovak</span></label>
+                <label class="checkbox"><input type="checkbox" value="hu-HU" data-tmdb-language-option /> <span>Hungarian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ro-RO" data-tmdb-language-option /> <span>Romanian</span></label>
+                <label class="checkbox"><input type="checkbox" value="bg-BG" data-tmdb-language-option /> <span>Bulgarian</span></label>
+                <label class="checkbox"><input type="checkbox" value="el-GR" data-tmdb-language-option /> <span>Greek</span></label>
+                <label class="checkbox"><input type="checkbox" value="th-TH" data-tmdb-language-option /> <span>Thai</span></label>
+                <label class="checkbox"><input type="checkbox" value="vi-VN" data-tmdb-language-option /> <span>Vietnamese</span></label>
+                <label class="checkbox"><input type="checkbox" value="id-ID" data-tmdb-language-option /> <span>Indonesian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ms-MY" data-tmdb-language-option /> <span>Malay</span></label>
+                <label class="checkbox"><input type="checkbox" value="tl-PH" data-tmdb-language-option /> <span>Tagalog</span></label>
+                <label class="checkbox"><input type="checkbox" value="fil-PH" data-tmdb-language-option /> <span>Filipino</span></label>
+                <label class="checkbox"><input type="checkbox" value="sr-RS" data-tmdb-language-option /> <span>Serbian</span></label>
+                <label class="checkbox"><input type="checkbox" value="hr-HR" data-tmdb-language-option /> <span>Croatian</span></label>
+                <label class="checkbox"><input type="checkbox" value="sl-SI" data-tmdb-language-option /> <span>Slovenian</span></label>
+                <label class="checkbox"><input type="checkbox" value="lt-LT" data-tmdb-language-option /> <span>Lithuanian</span></label>
+                <label class="checkbox"><input type="checkbox" value="lv-LV" data-tmdb-language-option /> <span>Latvian</span></label>
+                <label class="checkbox"><input type="checkbox" value="et-EE" data-tmdb-language-option /> <span>Estonian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ka-GE" data-tmdb-language-option /> <span>Georgian</span></label>
+                <label class="checkbox"><input type="checkbox" value="hy-AM" data-tmdb-language-option /> <span>Armenian</span></label>
+                <label class="checkbox"><input type="checkbox" value="az-AZ" data-tmdb-language-option /> <span>Azerbaijani</span></label>
+                <label class="checkbox"><input type="checkbox" value="kk-KZ" data-tmdb-language-option /> <span>Kazakh</span></label>
+                <label class="checkbox"><input type="checkbox" value="mn-MN" data-tmdb-language-option /> <span>Mongolian</span></label>
+                <label class="checkbox"><input type="checkbox" value="ne-NP" data-tmdb-language-option /> <span>Nepali</span></label>
+                <label class="checkbox"><input type="checkbox" value="si-LK" data-tmdb-language-option /> <span>Sinhala</span></label>
+                <label class="checkbox"><input type="checkbox" value="my-MM" data-tmdb-language-option /> <span>Burmese</span></label>
+                <label class="checkbox"><input type="checkbox" value="km-KH" data-tmdb-language-option /> <span>Khmer</span></label>
+                <label class="checkbox"><input type="checkbox" value="lo-LA" data-tmdb-language-option /> <span>Lao</span></label>
+                <label class="checkbox"><input type="checkbox" value="af-ZA" data-tmdb-language-option /> <span>Afrikaans</span></label>
+                <label class="checkbox"><input type="checkbox" value="sw-KE" data-tmdb-language-option /> <span>Swahili</span></label>
+                <label class="checkbox"><input type="checkbox" value="am-ET" data-tmdb-language-option /> <span>Amharic</span></label>
+              </div>
+            </div>
+            <label>Search Mode
+              <select name="TMDB_SEARCH_MODE" id="tmdbSearchModeSelect">
+                <option value="regional_only">Regional languages only</option>
+                <option value="english_and_regional">English + Regional languages</option>
+              </select>
+              <span class="field-hint">Choose whether to search with English titles + regional titles, or only regional titles.</span>
+            </label>
+          </div>
+          <div class="inline-actions">
+            <button type="button" class="secondary" data-test="tmdb">Test TMDb Connection</button>
+            <span class="status-message" data-test-status="tmdb"></span>
+          </div>
+        </section>
+
+        <section class="group">
           <h3>Addon Metadata</h3>
           <div class="field-grid">
             <label>Addon Display Name

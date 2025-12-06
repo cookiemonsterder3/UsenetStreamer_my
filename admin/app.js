@@ -19,6 +19,9 @@
   const languageHiddenInput = configForm.querySelector('[data-language-hidden]');
   const languageCheckboxes = Array.from(configForm.querySelectorAll('input[data-language-option]'));
   const languageSelector = configForm.querySelector('[data-language-selector]');
+  const tmdbLanguageHiddenInput = configForm.querySelector('[data-tmdb-language-hidden]');
+  const tmdbLanguageCheckboxes = Array.from(configForm.querySelectorAll('input[data-tmdb-language-option]'));
+  const tmdbLanguageSelector = configForm.querySelector('[data-tmdb-language-selector]');
   const versionBadge = document.getElementById('addonVersionBadge');
   const streamingModeSelect = document.getElementById('streamingModeSelect');
   const nativeModeNotice = document.getElementById('nativeModeNotice');
@@ -732,6 +735,7 @@
       populateForm(values);
       applyLanguageSelectionsFromHidden();
       applyQualitySelectionsFromHidden();
+      applyTmdbLanguageSelectionsFromHidden();
       refreshNewznabFieldNames();
       syncHealthControls();
       syncSortingControls();
@@ -955,6 +959,35 @@
     syncManagerControls();
   }
 
+  function getSelectedTmdbLanguages() {
+    return tmdbLanguageCheckboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => checkbox.value)
+      .filter((value) => value && value.trim().length > 0);
+  }
+
+  function syncTmdbLanguageHiddenInput() {
+    if (!tmdbLanguageHiddenInput) return;
+    tmdbLanguageHiddenInput.value = getSelectedTmdbLanguages().join(',');
+  }
+
+  function applyTmdbLanguageSelectionsFromHidden() {
+    if (!tmdbLanguageHiddenInput || tmdbLanguageCheckboxes.length === 0) return;
+    const stored = (tmdbLanguageHiddenInput.value || '').trim();
+    const tokens = stored
+      ? stored.split(',').map((value) => value.trim()).filter((value) => value.length > 0)
+      : [];
+    const selectedSet = new Set(tokens);
+    tmdbLanguageCheckboxes.forEach((checkbox) => {
+      checkbox.checked = selectedSet.has(checkbox.value);
+    });
+    syncTmdbLanguageHiddenInput();
+  }
+
+  function syncTmdbLanguageControls() {
+    // Always visible now - no mode switching needed
+  }
+
   function syncNewznabControls() {
     const rows = getNewznabRows();
     const hasRows = rows.length > 0;
@@ -1082,6 +1115,12 @@
     });
   }
 
+  tmdbLanguageCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      syncTmdbLanguageHiddenInput();
+    });
+  });
+
   if (easynewsToggle) {
     easynewsToggle.addEventListener('change', syncSaveGuard);
   }
@@ -1106,8 +1145,10 @@
   syncHealthControls();
   syncSortingControls();
   syncStreamingModeControls();
+  syncTmdbLanguageControls();
   syncManagerControls();
   syncNewznabControls();
   applyQualitySelectionsFromHidden();
+  applyTmdbLanguageSelectionsFromHidden();
   syncSaveGuard();
 })();

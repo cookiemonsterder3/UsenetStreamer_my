@@ -20,6 +20,7 @@ const {
   testUsenetConnection,
   testNewznabConnection,
   testNewznabSearch,
+  testTmdbConnection,
 } = require('./src/utils/connectionTests');
 const { triageAndRank } = require('./src/services/triage/runner');
 const { preWarmNntpPool, evictStaleSharedNntpPool } = require('./src/services/triage');
@@ -38,6 +39,7 @@ const { sleep, annotateNzbResult, applyMaxSizeFilter, prepareSortedResults, getP
 const indexerService = require('./src/services/indexer');
 const nzbdavService = require('./src/services/nzbdav');
 const specialMetadata = require('./src/services/specialMetadata');
+const tmdbService = require('./src/services/tmdb');
 
 const app = express();
 let currentPort = Number(process.env.PORT || 7000);
@@ -113,11 +115,32 @@ adminApiRouter.post('/config', async (req, res) => {
     return;
   }
 
+  // Debug: log TMDb related keys
+  console.log('[ADMIN] Received TMDb config:', {
+    TMDB_API_KEY: incoming.TMDB_API_KEY ? `(${incoming.TMDB_API_KEY.length} chars)` : '(empty)',
+    TMDB_SEARCH_LANGUAGE_MODE: incoming.TMDB_SEARCH_LANGUAGE_MODE,
+    TMDB_SEARCH_LANGUAGE: incoming.TMDB_SEARCH_LANGUAGE,
+  });
+
   const updates = {};
   const numberedKeySet = new Set(NEWZNAB_NUMBERED_KEYS);
   NEWZNAB_NUMBERED_KEYS.forEach((key) => {
     updates[key] = null;
   });
+
+  // Debug: ensure ADMIN_CONFIG_KEYS contains TMDb keys
+  if (!ADMIN_CONFIG_KEYS.includes('TMDB_API_KEY')) {
+    console.error('[ADMIN] TMDB_API_KEY missing from ADMIN_CONFIG_KEYS');
+  }
+  if (!ADMIN_CONFIG_KEYS.includes('TMDB_SEARCH_LANGUAGE_MODE')) {
+    console.error('[ADMIN] TMDB_SEARCH_LANGUAGE_MODE missing from ADMIN_CONFIG_KEYS');
+  }
+  if (!ADMIN_CONFIG_KEYS.includes('TMDB_SEARCH_LANGUAGE')) {
+    console.error('[ADMIN] TMDB_SEARCH_LANGUAGE missing from ADMIN_CONFIG_KEYS');
+  }
+  const tmdbKeysInAdminConfig = ADMIN_CONFIG_KEYS.filter((k) => k.startsWith('TMDB_'));
+  console.log('[ADMIN] TMDb keys in ADMIN_CONFIG_KEYS:', tmdbKeysInAdminConfig);
+  console.log('[ADMIN] ADMIN_CONFIG_KEYS length:', ADMIN_CONFIG_KEYS.length);
 
   ADMIN_CONFIG_KEYS.forEach((key) => {
     if (Object.prototype.hasOwnProperty.call(incoming, key)) {
@@ -143,11 +166,34 @@ adminApiRouter.post('/config', async (req, res) => {
     }
   });
 
+  // Safety: explicitly persist TMDb keys even if ADMIN_CONFIG_KEYS filtering breaks
+  if (Object.prototype.hasOwnProperty.call(incoming, 'TMDB_API_KEY')) {
+    updates.TMDB_API_KEY = incoming.TMDB_API_KEY ? String(incoming.TMDB_API_KEY) : '';
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, 'TMDB_SEARCH_LANGUAGE_MODE')) {
+    updates.TMDB_SEARCH_LANGUAGE_MODE = incoming.TMDB_SEARCH_LANGUAGE_MODE ? String(incoming.TMDB_SEARCH_LANGUAGE_MODE) : '';
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, 'TMDB_SEARCH_LANGUAGE')) {
+    updates.TMDB_SEARCH_LANGUAGE = incoming.TMDB_SEARCH_LANGUAGE ? String(incoming.TMDB_SEARCH_LANGUAGE) : '';
+  }
+
+  // Debug: log what we're about to save
+  console.log('[ADMIN] TMDb updates to save:', {
+    TMDB_API_KEY: updates.TMDB_API_KEY ? `(${updates.TMDB_API_KEY.length} chars)` : '(not in updates)',
+    TMDB_SEARCH_LANGUAGE_MODE: updates.TMDB_SEARCH_LANGUAGE_MODE,
+    TMDB_SEARCH_LANGUAGE: updates.TMDB_SEARCH_LANGUAGE,
+  });
+
   try {
     runtimeEnv.updateRuntimeEnv(updates);
     runtimeEnv.applyRuntimeEnv();
+    
+    // Debug: check process.env after apply
+    console.log('[ADMIN] process.env.TMDB_API_KEY after apply:', process.env.TMDB_API_KEY ? `(${process.env.TMDB_API_KEY.length} chars)` : '(empty)');
+    
     indexerService.reloadConfig();
     nzbdavService.reloadConfig();
+    tmdbService.reloadConfig();
     if (typeof cache.reloadNzbdavCacheConfig === 'function') {
       cache.reloadNzbdavCacheConfig();
     }
@@ -197,6 +243,9 @@ adminApiRouter.post('/test-connections', async (req, res) => {
         message = await easynewsService.testEasynewsCredentials({ username, password });
         break;
       }
+      case 'tmdb':
+        message = await testTmdbConnection(values);
+        break;
       default:
         res.status(400).json({ error: `Unknown test type: ${type}` });
         return;
@@ -742,6 +791,9 @@ const ADMIN_CONFIG_KEYS = [
   'EASYNEWS_ENABLED',
   'EASYNEWS_USERNAME',
   'EASYNEWS_PASSWORD',
+  'TMDB_API_KEY',
+  'TMDB_SEARCH_LANGUAGES',
+  'TMDB_SEARCH_MODE',
 ];
 
 ADMIN_CONFIG_KEYS.push('NEWZNAB_ENABLED', 'NEWZNAB_FILTER_NZB_ONLY', ...NEWZNAB_NUMBERED_KEYS);
@@ -1159,29 +1211,66 @@ async function streamHandler(req, res) {
       (type === 'series' && !hasTvdbInQuery) ||
       (type === 'movie' && !hasTmdbInQuery)
     );
-    const needsCinemeta = needsStrictSeriesTvdb
+
+    // Check if we should use TMDb as primary metadata source
+    const tmdbConfig = tmdbService.getConfig();
+    const shouldUseTmdb = tmdbService.isConfigured() && incomingImdbId;
+    
+    let tmdbMetadata = null;
+    let tmdbMetadataPromise = null;
+    
+    // Start TMDb fetch in background (don't await yet)
+    if (shouldUseTmdb) {
+      console.log('[TMDB] Starting TMDb metadata fetch in background');
+      tmdbMetadataPromise = tmdbService.getMetadataAndTitles({
+        imdbId: incomingImdbId,
+        type,
+      }).then((result) => {
+        if (result) {
+          console.log('[TMDB] Retrieved metadata', {
+            tmdbId: result.tmdbId,
+            mediaType: result.mediaType,
+            originalTitle: result.originalTitle,
+            year: result.year,
+            titleCount: result.titles.length,
+          });
+        }
+        return result;
+      }).catch((error) => {
+        console.error('[TMDB] Failed to fetch metadata:', error.message);
+        return null;
+      });
+    }
+
+    const needsCinemeta = !shouldUseTmdb && (
+      needsStrictSeriesTvdb
       || needsRelaxedMetadata
-      || easynewsService.requiresCinemetaMetadata(isSpecialRequest);
+      || easynewsService.requiresCinemetaMetadata(isSpecialRequest)
+    );
+    
+    let cinemetaPromise = null;
     if (needsCinemeta) {
       const cinemetaPath = type === 'series' ? `series/${baseIdentifier}.json` : `${type}/${baseIdentifier}.json`;
       const cinemetaUrl = `${CINEMETA_URL}/${cinemetaPath}`;
-      try {
-        console.log(`[CINEMETA] Fetching metadata from ${cinemetaUrl}`);
-        const cinemetaResponse = await axios.get(cinemetaUrl, { timeout: 10000 });
-        cinemetaMeta = cinemetaResponse.data?.meta || null;
-        if (cinemetaMeta) {
-          metaSources.push(cinemetaMeta);
-          console.log('[CINEMETA] Received metadata identifiers', {
-            imdb: cinemetaMeta?.ids?.imdb || cinemetaMeta?.imdb_id,
-            tvdb: cinemetaMeta?.ids?.tvdb || cinemetaMeta?.tvdb_id,
-            tmdb: cinemetaMeta?.ids?.tmdb || cinemetaMeta?.tmdb_id
-          });
-        } else {
-          console.warn(`[CINEMETA] No metadata payload returned for ${cinemetaUrl}`);
-        }
-      } catch (error) {
-        console.warn(`[CINEMETA] Failed to fetch metadata for ${baseIdentifier}: ${error.message}`);
-      }
+      console.log(`[CINEMETA] Starting Cinemeta fetch in background from ${cinemetaUrl}`);
+      cinemetaPromise = axios.get(cinemetaUrl, { timeout: 10000 })
+        .then((response) => {
+          const meta = response.data?.meta || null;
+          if (meta) {
+            console.log('[CINEMETA] Received metadata identifiers', {
+              imdb: meta?.ids?.imdb || meta?.imdb_id,
+              tvdb: meta?.ids?.tvdb || meta?.tvdb_id,
+              tmdb: meta?.ids?.tmdb || meta?.tmdb_id
+            });
+          } else {
+            console.warn(`[CINEMETA] No metadata payload returned`);
+          }
+          return meta;
+        })
+        .catch((error) => {
+          console.warn(`[CINEMETA] Failed to fetch metadata for ${baseIdentifier}: ${error.message}`);
+          return null;
+        });
     }
 
     const collectValues = (...extractors) => {
@@ -1342,6 +1431,7 @@ async function streamHandler(req, res) {
         return true;
       };
 
+      // Add ID-based searches immediately (before waiting for TMDb/Cinemeta)
       if (type === 'series' && metaIds.tvdb) {
         addPlan('tvsearch', { tokens: [`{TvdbId:${metaIds.tvdb}}`] });
       }
@@ -1350,15 +1440,51 @@ async function streamHandler(req, res) {
         addPlan(searchType, { tokens: [`{ImdbId:${metaIds.imdb}}`] });
       }
 
-      if (type === 'movie' && metaIds.tmdb) {
-        addPlan('movie', { tokens: [`{TmdbId:${metaIds.tmdb}}`] });
-      }
-
       if (searchPlans.length === 0 && metaIds.imdb) {
         addPlan(searchType, { tokens: [`{ImdbId:${metaIds.imdb}}`] });
       }
 
+      // Start ID-based searches immediately in background
+      const idSearchPromises = [];
+      if (searchPlans.length > 0) {
+        console.log(`${INDEXER_LOG_PREFIX} Starting ${searchPlans.length} ID-based search(es) immediately`);
+        idSearchPromises.push(...searchPlans.map((plan) => {
+          console.log(`${INDEXER_LOG_PREFIX} Dispatching early ID plan`, plan);
+          return Promise.allSettled([
+            executeManagerPlanWithBackoff(plan),
+            executeNewznabPlan(plan),
+          ]).then((settled) => ({ plan, settled }));
+        }));
+      }
+
+      // Now wait for TMDb to get localized titles (if applicable)
+      if (tmdbMetadataPromise) {
+        console.log('[TMDB] Waiting for TMDb metadata to add localized searches');
+        tmdbMetadata = await tmdbMetadataPromise;
+        if (tmdbMetadata) {
+          // Create a metadata object compatible with existing code
+          metaSources.push({
+            imdb_id: incomingImdbId,
+            tmdb_id: String(tmdbMetadata.tmdbId),
+            title: tmdbMetadata.originalTitle,
+            year: tmdbMetadata.year,
+            _tmdbTitles: tmdbMetadata.titles, // Store for later use
+          });
+        }
+      }
+
+      // Wait for Cinemeta if applicable
+      if (cinemetaPromise) {
+        console.log('[CINEMETA] Waiting for Cinemeta metadata');
+        cinemetaMeta = await cinemetaPromise;
+        if (cinemetaMeta) {
+          metaSources.push(cinemetaMeta);
+        }
+      }
+
+      // Continue with text-based searches using TMDb titles
       const textQueryParts = [];
+      let tmdbLocalizedQuery = null;
       let easynewsSearchParams = null;
       let textQueryFallbackValue = null;
       if (movieTitle) {
@@ -1387,6 +1513,43 @@ async function streamHandler(req, res) {
         } else {
           console.log(`${INDEXER_LOG_PREFIX} Skipping text search plan; insufficient metadata`);
         }
+
+        // TMDb multi-language searches: add search plans for each configured language
+        const tmdbTitles = metaSources.find(s => s?._tmdbTitles)?._tmdbTitles;
+        if (tmdbTitles && tmdbTitles.length > 0 && !isSpecialRequest) {
+          console.log(`[TMDB] Adding ${tmdbTitles.length} language-specific search plans`);
+          tmdbTitles.forEach((titleObj) => {
+            let localizedQuery = titleObj.title;
+            if (type === 'movie' && Number.isFinite(releaseYear)) {
+              localizedQuery = `${localizedQuery} ${releaseYear}`;
+            } else if (type === 'series' && Number.isFinite(seasonNum) && Number.isFinite(episodeNum)) {
+              localizedQuery = `${localizedQuery} S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`;
+            }
+            const added = addPlan('search', { rawQuery: localizedQuery });
+            if (added) {
+              console.log(`${INDEXER_LOG_PREFIX} Added TMDb ${titleObj.language} search plan`, { query: localizedQuery });
+            }
+
+            // Add ASCII fallback if different
+            if (titleObj.asciiTitle && titleObj.asciiTitle !== titleObj.title) {
+              let asciiQuery = titleObj.asciiTitle;
+              if (type === 'movie' && Number.isFinite(releaseYear)) {
+                asciiQuery = `${asciiQuery} ${releaseYear}`;
+              } else if (type === 'series' && Number.isFinite(seasonNum) && Number.isFinite(episodeNum)) {
+                asciiQuery = `${asciiQuery} S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`;
+              }
+              const addedAscii = addPlan('search', { rawQuery: asciiQuery });
+              if (addedAscii) {
+                console.log(`${INDEXER_LOG_PREFIX} Added TMDb ${titleObj.language} ASCII search plan`, { query: asciiQuery });
+              }
+            }
+
+            // Store first TMDb query for Easynews fallback
+            if (!tmdbLocalizedQuery) {
+              tmdbLocalizedQuery = localizedQuery;
+            }
+          });
+        }
       } else {
         const reason = INDEXER_MANAGER_STRICT_ID_MATCH ? 'strict ID matching enabled' : 'tvdb identifier provided';
         console.log(`${INDEXER_LOG_PREFIX} ${reason}; skipping text-based search`);
@@ -1401,19 +1564,61 @@ async function streamHandler(req, res) {
       if (easynewsService.isEasynewsEnabled()) {
         const easynewsStrictMode = !isSpecialRequest && (type === 'movie' || type === 'series');
         let easynewsRawQuery = null;
-        if (isSpecialRequest) {
-          easynewsRawQuery = (specialMetadataResult?.title || movieTitle || baseIdentifier || '').trim();
-        } else if (easynewsStrictMode) {
-          easynewsRawQuery = (textQueryParts.join(' ').trim() || movieTitle || '').trim();
-        } else {
-          easynewsRawQuery = (textQueryParts.join(' ').trim() || movieTitle || '').trim();
+        
+        // Check if we have TMDb titles - prefer English titles for Easynews
+        const tmdbTitles = metaSources.find(s => s?._tmdbTitles)?._tmdbTitles;
+        if (tmdbTitles && tmdbTitles.length > 0) {
+          // Find English title first
+          const englishTitle = tmdbTitles.find(t => t.language && t.language.startsWith('en-'));
+          if (englishTitle) {
+            easynewsRawQuery = englishTitle.title;
+            if (type === 'movie' && Number.isFinite(releaseYear)) {
+              easynewsRawQuery = `${easynewsRawQuery} ${releaseYear}`;
+            } else if (type === 'series' && Number.isFinite(seasonNum) && Number.isFinite(episodeNum)) {
+              easynewsRawQuery = `${easynewsRawQuery} S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`;
+            }
+            console.log('[EASYNEWS] Using English title from TMDb:', easynewsRawQuery);
+          } else {
+            // No English title, try ASCII-safe titles only
+            const asciiTitle = tmdbTitles.find(t => t.title && !/[^\x00-\x7F]/.test(t.title));
+            if (asciiTitle) {
+              easynewsRawQuery = asciiTitle.title;
+              if (type === 'movie' && Number.isFinite(releaseYear)) {
+                easynewsRawQuery = `${easynewsRawQuery} ${releaseYear}`;
+              } else if (type === 'series' && Number.isFinite(seasonNum) && Number.isFinite(episodeNum)) {
+                easynewsRawQuery = `${easynewsRawQuery} S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}`;
+              }
+              console.log('[EASYNEWS] Using ASCII title from TMDb:', easynewsRawQuery);
+            }
+          }
         }
-        if (!easynewsRawQuery && textQueryFallbackValue) {
-          easynewsRawQuery = textQueryFallbackValue;
+        
+        // Fallback to old logic if no TMDb titles
+        if (!easynewsRawQuery) {
+          if (isSpecialRequest) {
+            easynewsRawQuery = (specialMetadataResult?.title || movieTitle || baseIdentifier || '').trim();
+          } else if (easynewsStrictMode) {
+            easynewsRawQuery = (textQueryParts.join(' ').trim() || movieTitle || '').trim();
+          } else {
+            easynewsRawQuery = (textQueryParts.join(' ').trim() || movieTitle || '').trim();
+          }
+          if (!easynewsRawQuery && tmdbLocalizedQuery) {
+            easynewsRawQuery = tmdbLocalizedQuery;
+          }
+          if (!easynewsRawQuery && textQueryFallbackValue) {
+            easynewsRawQuery = textQueryFallbackValue;
+          }
+          if (!easynewsRawQuery && baseIdentifier) {
+            easynewsRawQuery = baseIdentifier;
+          }
+          
+          // Skip Easynews if final query contains non-ASCII characters
+          if (easynewsRawQuery && /[^\x00-\x7F]/.test(easynewsRawQuery)) {
+            console.log('[EASYNEWS] Skipping search - query contains non-ASCII characters:', easynewsRawQuery);
+            easynewsRawQuery = null;
+          }
         }
-        if (!easynewsRawQuery && baseIdentifier) {
-          easynewsRawQuery = baseIdentifier;
-        }
+        
         if (easynewsRawQuery) {
           easynewsSearchParams = {
             rawQuery: easynewsRawQuery,
@@ -1444,7 +1649,57 @@ async function streamHandler(req, res) {
       const rawAggregatedResults = [];
       const planSummaries = [];
 
-      const planExecutions = searchPlans.map((plan) => {
+      // Process early ID-based searches that are already running
+      const idPlanResults = await Promise.all(idSearchPromises);
+      const processedIdPlans = new Set();
+      
+      for (const { plan, settled } of idPlanResults) {
+        processedIdPlans.add(`${plan.type}|${plan.query}`);
+        const managerSet = settled[0];
+        const newznabSet = settled[1];
+        const managerResults = managerSet?.status === 'fulfilled'
+          ? (Array.isArray(managerSet.value?.results) ? managerSet.value.results : (Array.isArray(managerSet.value) ? managerSet.value : []))
+          : [];
+        const newznabResults = newznabSet?.status === 'fulfilled'
+          ? (Array.isArray(newznabSet.value?.results) ? newznabSet.value.results : (Array.isArray(newznabSet.value) ? newznabSet.value : []))
+          : [];
+        const combinedResults = [...managerResults, ...newznabResults];
+        const errors = [];
+        if (managerSet?.status === 'rejected') {
+          errors.push(`manager: ${managerSet.reason?.message || managerSet.reason}`);
+        } else if (Array.isArray(managerSet?.value?.errors) && managerSet.value.errors.length) {
+          managerSet.value.errors.forEach((err) => errors.push(`manager: ${err}`));
+        }
+        if (newznabSet?.status === 'rejected') {
+          errors.push(`newznab: ${newznabSet.reason?.message || newznabSet.reason}`);
+        } else if (Array.isArray(newznabSet?.value?.errors) && newznabSet.value.errors.length) {
+          newznabSet.value.errors.forEach((err) => errors.push(`newznab: ${err}`));
+        }
+        
+        console.log(`${INDEXER_LOG_PREFIX} ✅ ${plan.type} returned ${combinedResults.length} total results for query "${plan.query}"`, {
+          managerCount: managerResults.length || 0,
+          newznabCount: newznabResults.length || 0,
+          errors: errors.length ? errors : undefined,
+        });
+        
+        const filteredResults = combinedResults.filter((item) => item && typeof item === 'object' && item.downloadUrl);
+        rawAggregatedResults.push(...filteredResults);
+        
+        planSummaries.push({
+          planType: plan.type,
+          query: plan.query,
+          total: combinedResults.length,
+          filtered: filteredResults.length,
+          managerCount: managerResults.length,
+          newznabCount: newznabResults.length,
+          errors: errors.length ? errors : undefined,
+          newznabEndpoints: Array.isArray(newznabSet?.value?.endpoints) ? newznabSet.value.endpoints : [],
+        });
+      }
+
+      // Now execute remaining text-based search plans (exclude already-processed ID plans)
+      const remainingPlans = searchPlans.filter(p => !processedIdPlans.has(`${p.type}|${p.query}`));
+      const planExecutions = remainingPlans.map((plan) => {
         console.log(`${INDEXER_LOG_PREFIX} Dispatching plan`, plan);
         return Promise.allSettled([
           executeManagerPlanWithBackoff(plan),
