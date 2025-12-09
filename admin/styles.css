@@ -196,6 +196,41 @@ header h1 {
   line-height: 1.55;
 }
 
+.legend-card {
+  border-left: 4px solid #2e7d32;
+}
+
+.legend-card.inset {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.legend-card .compact {
+  margin: 0 0 6px;
+}
+
+.legend-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 1.4em;
+  text-align: center;
+  margin-right: 6px;
+}
+
+.legend-green { color: #2e7d32; }
+.legend-amber { color: #b26a00; }
+.legend-red { color: #c62828; }
+
 input[type="text"],
 input[type="url"],
 input[type="password"],

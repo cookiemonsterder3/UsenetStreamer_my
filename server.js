@@ -999,6 +999,37 @@ const VIDEO_MIME_MAP = new Map([
   ['.mpeg', 'video/mpeg']
 ]);
 
+function sanitizeStrictSearchPhrase(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, ' and ')
+    .replace(/[\.\-_:\s]+/g, ' ')
+    .replace(/[^\w\sÀ-ÿ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function matchesStrictSearch(title, strictPhrase) {
+  if (!strictPhrase) return true;
+  const candidate = sanitizeStrictSearchPhrase(title);
+  if (!candidate) return false;
+  if (candidate === strictPhrase) return true;
+  const candidateTokens = candidate.split(' ').filter(Boolean);
+  const phraseTokens = strictPhrase.split(' ').filter(Boolean);
+  if (phraseTokens.length === 0) return true;
+  for (let i = 0; i <= candidateTokens.length - phraseTokens.length; i += 1) {
+    let match = true;
+    for (let j = 0; j < phraseTokens.length; j += 1) {
+      if (candidateTokens[i + j] !== phraseTokens[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}
+
 function ensureAddonConfigured() {
   if (!ADDON_BASE_URL) {
     throw new Error('ADDON_BASE_URL is not configured');
@@ -1408,6 +1439,7 @@ async function streamHandler(req, res) {
 
     const seasonToken = Number.isFinite(seasonNum) ? `{Season:${seasonNum}}` : null;
     const episodeToken = Number.isFinite(episodeNum) ? `{Episode:${episodeNum}}` : null;
+    const strictTextMode = !isSpecialRequest && (type === 'movie' || type === 'series');
 
     if (!usingCachedSearchResults) {
       const searchPlans = [];
@@ -1428,7 +1460,15 @@ async function streamHandler(req, res) {
           return false;
         }
         seenPlans.add(planKey);
-        searchPlans.push({ type: planType, query, rawQuery: rawQuery ? rawQuery : null, tokens: normalizedTokens });
+        const planRecord = { type: planType, query, rawQuery: rawQuery ? rawQuery : null, tokens: normalizedTokens };
+        if (strictTextMode && planType === 'search' && rawQuery) {
+          const strictPhrase = sanitizeStrictSearchPhrase(rawQuery);
+          if (strictPhrase) {
+            planRecord.strictMatch = true;
+            planRecord.strictPhrase = strictPhrase;
+          }
+        }
+        searchPlans.push(planRecord);
         return true;
       };
 
@@ -1514,6 +1554,10 @@ async function streamHandler(req, res) {
 
       if (shouldAddTextSearch) {
         const textQueryCandidate = textQueryParts.join(' ').trim();
+        const isYearOnly = /^\d{4}$/.test(textQueryCandidate);
+        if (strictTextMode && isYearOnly && (!movieTitle || !movieTitle.trim())) {
+          console.log(`${INDEXER_LOG_PREFIX} Skipping year-only text plan (strict mode, no title)`);
+        } else {
         // Only use fallback identifier if we don't have TMDb titles coming
         const hasTmdbTitles = metaSources.some(s => s?._tmdbTitles?.length > 0);
         const fallbackIdentifier = hasTmdbTitles ? null : (incomingImdbId || baseIdentifier);
@@ -1527,6 +1571,7 @@ async function streamHandler(req, res) {
           }
         } else {
           console.log(`${INDEXER_LOG_PREFIX} Skipping text search plan; will use TMDb titles instead`);
+        }
         }
 
         // TMDb multi-language searches: add search plans for each configured language
@@ -1683,6 +1728,13 @@ async function streamHandler(req, res) {
       const rawAggregatedResults = [];
       const planSummaries = [];
 
+      const resultMatchesStrictPlan = (plan, item) => {
+        if (!plan?.strictMatch || !plan.strictPhrase) return true;
+        const title = (item?.title || item?.Title || '').trim();
+        if (!title) return false;
+        return matchesStrictSearch(title, plan.strictPhrase);
+      };
+
       // Process early ID-based searches that are already running
       const idProcessStartTs = Date.now();
       const idPlanResults = await Promise.all(idSearchPromises);
@@ -1719,7 +1771,9 @@ async function streamHandler(req, res) {
           errors: errors.length ? errors : undefined,
         });
         
-        const filteredResults = combinedResults.filter((item) => item && typeof item === 'object' && item.downloadUrl);
+        const filteredResults = combinedResults.filter((item) =>
+          item && typeof item === 'object' && item.downloadUrl && resultMatchesStrictPlan(plan, item)
+        );
         filteredResults.forEach((item) => rawAggregatedResults.push({ result: item, planType: plan.type }));
 
         if (filteredResults.length > 0) {
@@ -1836,7 +1890,7 @@ async function streamHandler(req, res) {
           if (!item.downloadUrl) {
             return false;
           }
-          return true;
+          return resultMatchesStrictPlan(plan, item);
         });
 
         filteredResults.forEach((item) => rawAggregatedResults.push({ result: item, planType: plan.type }));

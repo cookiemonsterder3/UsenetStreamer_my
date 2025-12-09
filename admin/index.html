@@ -31,18 +31,18 @@
       <form id="configForm">
         <section class="group streaming-mode-section">
           <h3>Streaming Mode</h3>
-          <p class="hint">Choose how streams are delivered to Stremio. Windows Native mode requires Stremio v5 on Windows desktop.</p>
+          <p class="hint">Choose how streams are delivered to Stremio. Desktop Native mode requires Stremio v5 on Windows desktop.</p>
           <div class="field-grid">
             <label>
               <select name="STREAMING_MODE" id="streamingModeSelect">
                 <option value="nzbdav">NZBDav Mode (All Platforms)</option>
-                <option value="native">Windows Native Mode (Stremio v5 Desktop)</option>
+                <option value="native">Desktop Native Mode (Stremio v5 Desktop)</option>
               </select>
-              <span class="field-hint" id="streamingModeHint">NZBDav mode uses WebDAV streaming and works on all platforms. Windows Native mode streams directly via NNTP (experimental, Windows only).</span>
+              <span class="field-hint" id="streamingModeHint">NZBDav mode uses WebDAV streaming and works on all platforms. Desktop Native mode streams directly via NNTP (experimental, Windows only).</span>
             </label>
           </div>
           <div id="nativeModeNotice" class="info-box hidden">
-            <strong>⚡ Windows Native Mode</strong>
+            <strong>⚡ Desktop Native Mode</strong>
             <p>Streams NZBs directly using your NNTP provider credentials. No NZBDav required. Only works with Stremio v5 on Windows desktop.</p>
             <p>Prowlarr/NZBHydra are disabled in this mode — use direct Newznab indexers only.</p>
           </div>
@@ -53,9 +53,9 @@
           <div class="field-grid">
             <label>Manager Type
               <select name="INDEXER_MANAGER">
+                <option value="none" selected>Direct Newznab (Recommended)</option>
                 <option value="prowlarr">Prowlarr</option>
                 <option value="nzbhydra">NZBHydra</option>
-                <option value="none" selected>Newznab Only (Recommended)</option>
               </select>
             </label>
             <label data-manager-field>Manager URL
@@ -68,9 +68,9 @@
               <input name="INDEXER_MANAGER_INDEXERS" type="text" placeholder="-1 or sci-fi,4k" />
               <span class="field-hint">Comma-separated list of indexers this addon may query. Prowlarr: numeric IDs, with -1 meaning “all Usenet indexers”. NZBHydra: type the indexer names exactly as shown in Hydra.</span>
             </label>
-            <label data-manager-field>Paid Indexers (comma separated)
+            <label data-manager-field>I have paid subscriptions with (comma separated)
               <input name="NZB_TRIAGE_PRIORITY_INDEXERS" type="text" placeholder="9,33" />
-              <span class="field-hint">Subset of the above list that gets used for health checks. Must be a comma-separated subset of “Indexer IDs / Names”.</span>
+              <span class="field-hint">Comma-separated IDs/names of indexers where you have an active paid plan. Health checks only run against these.</span>
             </label>
             <label class="checkbox">
               <input name="INDEXER_MANAGER_STRICT_ID_MATCH" type="checkbox" />
@@ -135,7 +135,7 @@
         <section class="group">
           <h3>Built-in Easynews Indexer</h3>
           <p class="hint">Provide your Easynews credentials to let the addon search Easynews directly (no external bridge required). Only the username and password are needed.</p>
-          <p class="warning hidden" id="easynewsHttpsWarning">Windows Native mode: Easynews results only play if your addon is served over HTTPS (Stremio refuses plain HTTP URLs).</p>
+          <p class="warning hidden" id="easynewsHttpsWarning">Desktop Native mode: Easynews results only play if your addon is served over HTTPS (Stremio refuses plain HTTP URLs).</p>
           <div class="field-grid">
             <label class="checkbox">
               <input name="EASYNEWS_ENABLED" type="checkbox" />
@@ -336,7 +336,15 @@
         </section>
 
         <section class="group">
-          <h3>NZB Health Check</h3>
+          <h3>NZB Health Check (highly recommended)</h3>
+          <div class="legend-card inset">
+            <h4 class="compact">Stream Status Legend</h4>
+            <ul class="legend-list">
+              <li><span class="legend-dot legend-green">✅</span> Green: verified — direct video or stored archive (copy-only). Expected to play.</li>
+              <li><span class="legend-dot legend-amber">⚠️</span> Unverified: articles present but archive not inspected (e.g., 7z). Might or might not play.</li>
+              <li><span class="legend-dot legend-red">🚫</span> Red: blocked — missing articles or unsupported/compressed archive. Will not play.</li>
+            </ul>
+          </div>
           <div class="field-grid">
             <label class="checkbox">
               <input name="NZB_TRIAGE_ENABLED" type="checkbox" />

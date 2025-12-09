@@ -398,7 +398,7 @@
           </label>
           <label class="checkbox">
             <input type="checkbox" data-field="PAID" />
-            <span>Paid / Health-ready</span>
+            <span>I have a paid subscription with this indexer (use for health checks)</span>
           </label>
         </div>
         <div class="row-controls">
