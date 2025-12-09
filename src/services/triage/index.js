@@ -11,7 +11,6 @@ function timingLog(event, details) {
 
 const ARCHIVE_EXTENSIONS = new Set(['.rar', '.r00', '.r01', '.r02', '.7z', '.zip']);
 const VIDEO_FILE_EXTENSIONS = ['.mkv', '.mp4', '.mov', '.avi', '.ts', '.m4v', '.mpg', '.mpeg', '.wmv', '.flv', '.webm'];
-const SPLIT_SEVEN_Z_REGEX = /\.7z\.(\d{2,3})$/i;
 const ARCHIVE_ONLY_MIN_PARTS = 10;
 const RAR4_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]);
 const RAR5_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]);
@@ -588,9 +587,11 @@ function isPlayableVideoName(name) {
   return !/sample|proof/i.test(name);
 }
 
-function isSplitSevenZipFilename(name) {
+function isSevenZipFilename(name) {
   if (!name) return false;
-  return SPLIT_SEVEN_Z_REGEX.test(name.trim());
+  const lower = name.trim().toLowerCase();
+  if (lower.endsWith('.7z')) return true;
+  return /\.7z\.\d{2,3}$/.test(lower);
 }
 
 function analyzeBufferFilenames(buffer) {
@@ -620,6 +621,10 @@ function analyzeBufferFilenames(buffer) {
 
 function applyHeuristicArchiveHints(result, buffer, context = {}) {
   if (!buffer || buffer.length === 0) {
+    return result;
+  }
+  const statusLabel = String(result?.status || '').toLowerCase();
+  if (statusLabel.startsWith('sevenzip')) {
     return result;
   }
   const hints = analyzeBufferFilenames(buffer);
@@ -753,9 +758,7 @@ async function inspectArchiveViaNntp(file, ctx) {
   const segmentId = segments[0]?.id;
   if (!segmentId) return { status: 'archive-no-segments' };
   const effectiveFilename = file.filename || guessFilenameFromSubject(file.subject) || '';
-  if (isSplitSevenZipFilename(effectiveFilename)) {
-    return { status: 'sevenzip-unsupported', details: { reason: 'split-7z-multipart', filename: effectiveFilename } };
-  }
+  const isSevenZip = isSevenZipFilename(effectiveFilename);
   return runWithClient(ctx.nntpPool, async (client) => {
     let statStart = null;
     if (currentMetrics) {
@@ -776,6 +779,19 @@ async function inspectArchiveViaNntp(file, ctx) {
       }
       if (err.code === 'STAT_MISSING' || err.code === 430) return { status: 'stat-missing', details: { segmentId }, segmentId };
       return { status: 'stat-error', details: { segmentId, message: err.message }, segmentId };
+    }
+
+    if (isSevenZip) {
+      console.log('[NZB TRIAGE] Skipping 7z archive inspection (STAT passed, body skipped)', {
+        filename: file.filename,
+        subject: file.subject,
+        segmentId,
+      });
+      return {
+        status: 'sevenzip-untested',
+        details: { reason: '7z-skip-body', filename: effectiveFilename },
+        segmentId,
+      };
     }
 
     let bodyStart = null;
@@ -843,11 +859,15 @@ function handleArchiveStatus(status, blockers, warnings) {
     case 'archive-no-segments':
     case 'rar-insufficient-data':
     case 'rar-header-not-found':
+    case 'sevenzip-insufficient-data':
     case 'io-error':
     case 'stat-error':
     case 'body-error':
     case 'decode-error':
     case 'missing-filename':
+      warnings.add(status);
+      break;
+    case 'sevenzip-untested':
       warnings.add(status);
       break;
     default:

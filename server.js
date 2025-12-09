@@ -2349,7 +2349,8 @@ async function streamHandler(req, res) {
 
         const missingArticlesFailure = (triageInfo?.blockers || []).includes('missing-articles')
           || archiveStatuses.includes('segment-missing');
-        const missingArticlesSuccess = archiveStatuses.includes('segment-ok');
+        const missingArticlesSuccess = archiveStatuses.includes('segment-ok')
+          || archiveStatuses.includes('sevenzip-untested');
         let missingArticlesStatus = 'not-run';
         if (triageInfo) {
           if (missingArticlesFailure) missingArticlesStatus = 'failed';
