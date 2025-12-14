@@ -626,10 +626,10 @@ function maybePrewarmSharedNntpPool() {
   if (!options) return;
   preWarmNntpPool(options)
     .then(() => {
-      // console.log('[NZB TRIAGE] Pre-warmed NNTP pool with shared configuration');
+      console.log('[NZB TRIAGE] Pre-warmed NNTP pool with shared configuration');
     })
     .catch((err) => {
-      // console.warn('[NZB TRIAGE] Unable to pre-warm NNTP pool', err?.message || err);
+      console.warn('[NZB TRIAGE] Unable to pre-warm NNTP pool', err?.message || err);
     });
 }
 
@@ -640,7 +640,7 @@ function triggerRequestTriagePrewarm(reason = 'request') {
   const options = buildSharedPoolOptions();
   if (!options) return null;
   return preWarmNntpPool(options).catch((err) => {
-    // console.warn(`[NZB TRIAGE] Unable to pre-warm NNTP pool (${reason})`, err?.message || err);
+    console.warn(`[NZB TRIAGE] Unable to pre-warm NNTP pool (${reason})`, err?.message || err);
   });
 }
 
@@ -655,7 +655,7 @@ function restartSharedPoolMonitor() {
   const intervalMs = Math.max(30000, TRIAGE_NNTP_KEEP_ALIVE_MS || 120000);
   sharedPoolMonitorTimer = setInterval(() => {
     evictStaleSharedNntpPool().catch((err) => {
-      // console.warn('[NZB TRIAGE] Failed to evict stale NNTP pool', err?.message || err);
+      console.warn('[NZB TRIAGE] Failed to evict stale NNTP pool', err?.message || err);
     });
   }, intervalMs);
   if (typeof sharedPoolMonitorTimer.unref === 'function') {
@@ -1810,8 +1810,10 @@ async function streamHandler(req, res) {
 
       // Start Easynews search in parallel if params are ready
       let easynewsPromise = null;
+      let easynewsSearchStartTs = null;
       if (easynewsSearchParams) {
         console.log('[EASYNEWS] Starting search in parallel');
+        easynewsSearchStartTs = Date.now();
         easynewsPromise = easynewsService.searchEasynews(easynewsSearchParams)
           .then((results) => {
             if (Array.isArray(results) && results.length > 0) {
@@ -2087,10 +2089,21 @@ async function streamHandler(req, res) {
         .map((result) => ({ ...result, _sourceType: 'nzb' }));
 
       // Wait for Easynews results if search was started
+      // Easynews gets 7s from its start if other searches are done, otherwise waits with them
       const easynewsWaitStartTs = Date.now();
       if (easynewsPromise) {
         console.log('[EASYNEWS] Waiting for parallel Easynews search to complete');
-        const easynewsResults = await easynewsPromise;
+        const easynewsElapsedMs = Date.now() - (easynewsSearchStartTs || easynewsWaitStartTs);
+        const remainingMs = Math.max(0, easynewsService.EASYNEWS_SEARCH_STANDALONE_TIMEOUT_MS - easynewsElapsedMs);
+        let easynewsResults = [];
+        try {
+          easynewsResults = await Promise.race([
+            easynewsPromise,
+            new Promise((resolve) => setTimeout(() => resolve([]), remainingMs)),
+          ]);
+        } catch (err) {
+          console.warn('[EASYNEWS] Search timed out or failed', err?.message || err);
+        }
         console.log(`[EASYNEWS] Easynews search completed in ${Date.now() - easynewsWaitStartTs} ms`);
         if (Array.isArray(easynewsResults) && easynewsResults.length > 0) {
           console.log('[EASYNEWS] Adding results to final list', { count: easynewsResults.length });
@@ -2187,7 +2200,7 @@ async function streamHandler(req, res) {
       ? TRIAGE_SERIALIZED_INDEXERS
       : combinedHealthTokens;
     const healthIndexerSet = new Set((combinedHealthTokens || []).map((token) => normalizeIndexerToken(token)).filter(Boolean));
-    // console.log(`[NZB TRIAGE] Easynews health check mode: ${EASYNEWS_TREAT_AS_INDEXER ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`[NZB TRIAGE] Easynews health check mode: ${EASYNEWS_TREAT_AS_INDEXER ? 'ENABLED' : 'DISABLED'}`);
     
     const triagePool = healthIndexerSet.size > 0
       ? finalNzbResults.filter((result) => {
@@ -2197,13 +2210,13 @@ async function streamHandler(req, res) {
           }
           // Include Easynews if flag is enabled
           if (EASYNEWS_TREAT_AS_INDEXER && result._sourceType === 'easynews') {
-            // console.log(`[NZB TRIAGE] Including Easynews result in triage pool: ${result.title}`);
+            console.log(`[NZB TRIAGE] Including Easynews result in triage pool: ${result.title}`);
             return true;
           }
           return false;
         })
       : [];
-    // console.log(`[NZB TRIAGE] Triage pool size: ${triagePool.length} (from ${finalNzbResults.length} total results)`);
+    console.log(`[NZB TRIAGE] Triage pool size: ${triagePool.length} (from ${finalNzbResults.length} total results)`);
     const getDecisionStatus = (candidate) => {
       const decision = triageDecisions.get(candidate.downloadUrl);
       return decision && decision.status ? String(decision.status).toLowerCase() : null;
@@ -2255,12 +2268,12 @@ async function streamHandler(req, res) {
 
     if (shouldAttemptTriage) {
       if (!TRIAGE_NNTP_CONFIG) {
-        // console.warn('[NZB TRIAGE] Skipping health checks because NNTP configuration is missing');
+        console.warn('[NZB TRIAGE] Skipping health checks because NNTP configuration is missing');
       } else {
         const triageLogger = (level, message, context) => {
           const logFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-          // if (context) logFn(`[NZB TRIAGE] ${message}`, context);
-          // else logFn(`[NZB TRIAGE] ${message}`);
+          if (context) logFn(`[NZB TRIAGE] ${message}`, context);
+          else logFn(`[NZB TRIAGE] ${message}`);
         };
         const triageOptions = {
           allowedIndexerIds: combinedHealthTokens,
@@ -2283,7 +2296,7 @@ async function streamHandler(req, res) {
             triageDecisions.set(downloadUrl, decision);
           });
           triageTitleMap = buildTriageTitleMap(triageDecisions);
-          // console.log(`[NZB TRIAGE] Evaluated ${triageOutcome.evaluatedCount}/${triageOutcome.candidatesConsidered} candidate NZBs in ${triageOutcome.elapsedMs} ms (timedOut=${triageOutcome.timedOut})`);
+          console.log(`[NZB TRIAGE] Evaluated ${triageOutcome.evaluatedCount}/${triageOutcome.candidatesConsidered} candidate NZBs in ${triageOutcome.elapsedMs} ms (timedOut=${triageOutcome.timedOut})`);
           if (triageDecisions.size > 0) {
             const statusCounts = {};
             let loggedSamples = 0;
@@ -2292,30 +2305,30 @@ async function streamHandler(req, res) {
               const status = decision?.status || 'unknown';
               statusCounts[status] = (statusCounts[status] || 0) + 1;
               if (loggedSamples < sampleLimit) {
-                /* console.log('[NZB TRIAGE] Decision sample', {
+                console.log('[NZB TRIAGE] Decision sample', {
                   status,
                   blockers: decision?.blockers || [],
                   warnings: decision?.warnings || [],
                   fileCount: decision?.fileCount ?? null,
                   nzbIndex: decision?.nzbIndex ?? null,
                   downloadUrl
-                }); */
+                });
                 loggedSamples += 1;
               }
             });
             if (triageDecisions.size > sampleLimit) {
-              // console.log(`[NZB TRIAGE] (${triageDecisions.size - sampleLimit}) additional decisions omitted from sample log`);
+              console.log(`[NZB TRIAGE] (${triageDecisions.size - sampleLimit}) additional decisions omitted from sample log`);
             }
-            // console.log('[NZB TRIAGE] Decision status breakdown', statusCounts);
+            console.log('[NZB TRIAGE] Decision status breakdown', statusCounts);
           } else {
-            // console.log('[NZB TRIAGE] No decisions were produced by the triage runner');
+            console.log('[NZB TRIAGE] No decisions were produced by the triage runner');
           }
         } catch (triageError) {
-          // console.warn(`[NZB TRIAGE] Health check failed: ${triageError.message}`);
+          console.warn(`[NZB TRIAGE] Health check failed: ${triageError.message}`);
         }
       }
     } else if (shouldSkipTriageForRequest && TRIAGE_ENABLED && !requestedDisable) {
-      // console.log('[NZB TRIAGE] Skipping health checks for non-ID request (no IMDb/TVDB identifier)');
+      console.log('[NZB TRIAGE] Skipping health checks for non-ID request (no IMDb/TVDB identifier)');
     }
 
     if (shouldAttemptTriage) {
@@ -2629,7 +2642,7 @@ async function streamHandler(req, res) {
         }
 
         if (triageApplied && triageLogCount < 10) {
-          /* console.log('[NZB TRIAGE] Stream candidate status', {
+          console.log('[NZB TRIAGE] Stream candidate status', {
             title: result.title,
             downloadUrl: result.downloadUrl,
             status: triageStatus,
@@ -2641,12 +2654,12 @@ async function streamHandler(req, res) {
             archiveCheckStatus,
             missingArticlesStatus,
             timedOut: Boolean(triageOutcome?.timedOut)
-          }); */
+          });
           triageLogCount += 1;
         } else if (!triageApplied) {
           // Skip logging for streams that were never part of the triage batch
         } else if (!triageLogSuppressed) {
-          // console.log('[NZB TRIAGE] Additional stream triage logs suppressed');
+          console.log('[NZB TRIAGE] Additional stream triage logs suppressed');
           triageLogSuppressed = true;
         }
 

@@ -2,7 +2,9 @@ const axios = require('axios');
 const { stripTrailingSlashes, toBoolean } = require('../../utils/config');
 
 const EASYNEWS_BASE_URL = 'https://members.easynews.com';
-const DEFAULT_TIMEOUT_MS = 45000;
+const DEFAULT_TIMEOUT_MS = 15000;
+const EASYNEWS_SEARCH_STANDALONE_TIMEOUT_MS = 7000;
+const EASYNEWS_NZB_DOWNLOAD_TIMEOUT_MS = 30000;
 const DEFAULT_MIN_SIZE_MB = 100;
 const MAX_RESULTS_PER_PAGE = 250;
 const TOKEN_SPLIT_REGEX = /[^\w]+/gu;
@@ -531,7 +533,7 @@ async function downloadEasynewsNzb(payloadToken) {
     ...authConfig,
     headers: mergedHeaders,
     responseType: 'arraybuffer',
-    timeout: 60000,
+    timeout: EASYNEWS_NZB_DOWNLOAD_TIMEOUT_MS,
   });
   if (response.status !== 200) {
     throw new Error(`Easynews NZB download failed (${response.status})`);
@@ -570,4 +572,5 @@ module.exports = {
   searchEasynews,
   downloadEasynewsNzb,
   testEasynewsCredentials,
+  EASYNEWS_SEARCH_STANDALONE_TIMEOUT_MS,
 };

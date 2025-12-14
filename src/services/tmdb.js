@@ -1,5 +1,14 @@
 // TMDb service - Localized title fetching for improved search
 const axios = require('axios');
+const https = require('https');
+
+// Disable keep-alive to force fresh connections and avoid stale-socket ECONNRESET
+const tmdbHttpsAgent = new https.Agent({ keepAlive: false });
+
+// Retry configuration for transient network errors
+const TMDB_RETRY_COUNT = 2;
+const TMDB_RETRY_DELAY_MS = 500;
+const RETRYABLE_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN']);
 
 // Configuration (reloaded from process.env)
 let TMDB_API_KEY = '';
@@ -141,7 +150,7 @@ function setInCache(key, data) {
 }
 
 /**
- * Make authenticated TMDb API request
+ * Make authenticated TMDb API request with linear retry for transient errors
  */
 async function tmdbRequest(endpoint, params = {}) {
   if (!TMDB_API_KEY) {
@@ -149,27 +158,45 @@ async function tmdbRequest(endpoint, params = {}) {
   }
 
   const url = `https://api.themoviedb.org/3${endpoint}`;
-  const response = await axios.get(url, {
-    params,
-    headers: {
-      'Authorization': `Bearer ${TMDB_API_KEY}`,
-      'Accept': 'application/json',
-    },
-    timeout: 8000,
-    validateStatus: (status) => status < 500,
-  });
+  let lastError = null;
 
-  if (response.status === 401) {
-    throw new Error('TMDb API: Invalid API key');
-  }
-  if (response.status === 404) {
-    return null;
-  }
-  if (response.status >= 400) {
-    throw new Error(`TMDb API error: ${response.status}`);
+  for (let attempt = 0; attempt <= TMDB_RETRY_COUNT; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        params,
+        headers: {
+          'Authorization': `Bearer ${TMDB_API_KEY}`,
+          'Accept': 'application/json',
+        },
+        timeout: 8000,
+        httpsAgent: tmdbHttpsAgent,
+        validateStatus: (status) => status < 500,
+      });
+
+      if (response.status === 401) {
+        throw new Error('TMDb API: Invalid API key');
+      }
+      if (response.status === 404) {
+        return null;
+      }
+      if (response.status >= 400) {
+        throw new Error(`TMDb API error: ${response.status}`);
+      }
+
+      return response.data;
+    } catch (error) {
+      lastError = error;
+      const code = error?.code || '';
+      const isRetryable = RETRYABLE_CODES.has(code) || /ECONNRESET|ETIMEDOUT|socket hang up/i.test(error?.message || '');
+      if (!isRetryable || attempt >= TMDB_RETRY_COUNT) {
+        throw error;
+      }
+      // Linear delay before retry
+      await new Promise((resolve) => setTimeout(resolve, TMDB_RETRY_DELAY_MS));
+    }
   }
 
-  return response.data;
+  throw lastError || new Error('TMDb request failed after retries');
 }
 
 /**
